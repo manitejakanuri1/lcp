@@ -1,4 +1,4 @@
-export type UserRole = 'founder' | 'salesman'
+export type UserRole = 'founder' | 'salesman' | 'accounting'
 export type ProductStatus = 'available' | 'sold'
 export type PaymentMethod = 'cash' | 'card' | 'upi'
 

@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
+import { AuthProvider } from './contexts/AuthContext'
+import { ProtectedRoute } from './components/ProtectedRoute'
+import { LoginPage } from './pages/Login'
 import {
   Dashboard,
   Inventory,
@@ -9,18 +12,85 @@ import {
   Users
 } from './pages'
 
+/**
+ * Role-Based Access Control:
+ *
+ * Founder: Full access to all features
+ * - Dashboard, Inventory, POS, Search, Analytics, Users
+ *
+ * Salesman: Limited access
+ * - POS (Sales)
+ * - Search
+ *
+ * Accounting: View & Reports only
+ * - Analytics
+ * - Dashboard (view only)
+ * - Inventory (view only)
+ */
+
 function AppRoutes() {
   return (
     <Routes>
-      {/* All routes accessible without login */}
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/inventory" element={<Inventory />} />
-      <Route path="/pos" element={<POS />} />
-      <Route path="/search" element={<Search />} />
-      <Route path="/analytics" element={<Analytics />} />
-      <Route path="/users" element={<Users />} />
+      {/* Public Route */}
+      <Route path="/login" element={<LoginPage />} />
 
-      {/* Default route */}
+      {/* Founder Only - Full Access */}
+      <Route
+        path="/dashboard"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <Dashboard />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/inventory"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <Inventory />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/users"
+        element={
+          <ProtectedRoute allowedRoles={['founder']}>
+            <Users />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/analytics"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <Analytics />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Salesman & Founder Access */}
+      <Route
+        path="/pos"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'salesman']}>
+            <POS />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/search"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'salesman']}>
+            <Search />
+          </ProtectedRoute>
+        }
+      />
+
+      {/* Default Routes */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
@@ -31,7 +101,9 @@ function App() {
   return (
     <BrowserRouter>
       <ThemeProvider>
-        <AppRoutes />
+        <AuthProvider>
+          <AppRoutes />
+        </AuthProvider>
       </ThemeProvider>
     </BrowserRouter>
   )

@@ -12,6 +12,7 @@ interface AuthContextType {
     isLoading: boolean
     isFounder: boolean
     isSalesman: boolean
+    isAccounting: boolean
     signIn: (email: string, password: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
@@ -28,6 +29,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const role = profile?.role ?? null
     const isFounder = role === 'founder'
     const isSalesman = role === 'salesman'
+    const isAccounting = role === 'accounting'
 
     const fetchProfile = async (userId: string) => {
         try {
@@ -113,6 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         isFounder,
         isSalesman,
+        isAccounting,
         signIn,
         signOut,
         refreshProfile
