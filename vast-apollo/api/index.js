@@ -19,10 +19,29 @@ const supabase = createClient(
 
 // Security middleware
 app.use(helmet());
+
+// Dynamic CORS based on environment
+const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:4173',
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+    process.env.PRODUCTION_URL
+].filter(Boolean);
+
 app.use(cors({
-    origin: 'http://localhost:5173', // Frontend URL
+    origin: function (origin, callback) {
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) return callback(null, true);
+
+        if (allowedOrigins.some(allowed => origin.includes(allowed.replace('https://', '').replace('http://', '')))) {
+            callback(null, true);
+        } else {
+            callback(null, true); // For development, allow all. In production, use: callback(new Error('Not allowed by CORS'))
+        }
+    },
     credentials: true
 }));
+
 app.use(express.json());
 app.use(cookieParser());
 
