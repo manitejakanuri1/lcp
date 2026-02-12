@@ -3,8 +3,8 @@ import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
+import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
-import { QRCodeSVG } from 'qrcode.react'
 import { v4 as uuidv4 } from 'uuid'
 
 export function Inventory() {
@@ -19,7 +19,7 @@ export function Inventory() {
     const [editFormData, setEditFormData] = useState<Partial<Product>>({})
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
-    const [codeModalProduct, setCodeModalProduct] = useState<Product | null>(null)
+    const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -229,10 +229,17 @@ export function Inventory() {
                                 className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 hover:shadow-lg transition-shadow cursor-pointer"
                                 onClick={() => setSelectedProduct(product)}
                             >
-                                <div className="flex gap-4">
-                                    {/* QR Code */}
-                                    <div className="w-20 h-20 bg-white rounded-lg flex items-center justify-center shrink-0">
-                                        <QRCodeSVG value={product.sku} size={72} level="M" />
+                                <div className="flex flex-col gap-3">
+                                    {/* Barcode */}
+                                    <div className="bg-white rounded-lg p-2 flex items-center justify-center">
+                                        <BarcodeDisplay
+                                            value={product.sku}
+                                            width={1.5}
+                                            height={40}
+                                            format="CODE128"
+                                            displayValue={true}
+                                            fontSize={12}
+                                        />
                                     </div>
 
                                     {/* Details */}
@@ -257,7 +264,7 @@ export function Inventory() {
                                         {product.color && (
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
                                         )}
-                                        <div className="flex gap-4 mt-2 text-sm">
+                                        <div className="flex gap-4 mt-1 text-sm">
                                             <span className="text-red-500">Cost: {formatCurrency(product.cost_price)}</span>
                                             <span className="text-green-500">Sell: {formatCurrency(product.selling_price_a)}</span>
                                         </div>
@@ -418,24 +425,23 @@ export function Inventory() {
                 >
                     {selectedProduct && !isEditMode && (
                         <div className="space-y-6">
-                            {/* QR Code for printing */}
+                            {/* Barcode Preview */}
                             <div className="flex justify-center">
-                                <div id="qr-code-label" className="bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300" style={{ width: '280px' }}>
-                                    {/* Shop Name Header */}
+                                <div className="bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300">
                                     <div className="text-center mb-3 pb-3 border-b-2 border-gray-300">
                                         <h2 className="text-xl font-bold" style={{ color: '#000' }}>Lakshmi Saree Mandir</h2>
                                     </div>
-
-                                    {/* QR Code */}
                                     <div className="flex justify-center mb-3">
-                                        <QRCodeSVG value={selectedProduct.sku} size={140} level="H" />
+                                        <BarcodeDisplay
+                                            value={selectedProduct.sku}
+                                            width={2}
+                                            height={60}
+                                            format="CODE128"
+                                            displayValue={true}
+                                            fontSize={16}
+                                        />
                                     </div>
-
-                                    {/* SKU */}
-                                    <p className="text-center font-mono font-bold text-gray-800 text-sm mb-3">{selectedProduct.sku}</p>
-
-                                    {/* Price Section */}
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-2 gap-2 mt-4">
                                         <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-3 py-2 rounded-lg text-center">
                                             <p className="text-xs font-semibold">MRP</p>
                                             <p className="text-xl font-bold">₹{selectedProduct.selling_price_a}</p>
@@ -448,16 +454,6 @@ export function Inventory() {
                                 </div>
                             </div>
 
-                            {/* Print Button */}
-                            <div className="flex justify-center">
-                                <Button
-                                    variant="primary"
-                                    onClick={() => window.print()}
-                                >
-                                    🖨️ Print QR Code Label
-                                </Button>
-                            </div>
-
                             <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Type</p>
@@ -467,7 +463,6 @@ export function Inventory() {
                                     <p className="text-[var(--color-text-muted)]">Material</p>
                                     <p className="font-medium">{selectedProduct.material}</p>
                                 </div>
-
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Quantity</p>
                                     <p className="font-medium">{selectedProduct.quantity}</p>
@@ -514,49 +509,16 @@ export function Inventory() {
                                 </div>
                             </div>
 
-                            <Button
-                                variant="secondary"
-                                fullWidth
-                                onClick={() => {
-                                    // Print QR label
-                                    const printWindow = window.open('', '_blank')
-                                    if (printWindow) {
-                                        printWindow.document.write(`
-                      <html>
-                        <head>
-                          <title>Print QR - ${selectedProduct.sku}</title>
-                          <style>
-                            body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-                            .label { text-align: center; padding: 10mm; }
-                            .sku { font-family: monospace; font-weight: bold; margin-top: 5mm; font-size: 14pt; }
-                          </style>
-                        </head>
-                        <body>
-                          <div class="label">
-                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedProduct.sku}" />
-                            <div class="sku">${selectedProduct.sku}</div>
-                          </div>
-                          <script>window.onload = () => { window.print(); window.close(); }</script>
-                        </body>
-                      </html>
-                    `)
-                                        printWindow.document.close()
-                                    }
-                                }}
-                            >
-                                🖨️ Print QR Label
-                            </Button>
-
-                            {/* New Barcode/QR Button */}
+                            {/* Single Barcode Button */}
                             <Button
                                 variant="primary"
                                 fullWidth
                                 onClick={() => {
-                                    setCodeModalProduct(selectedProduct)
+                                    setBarcodeModalProduct(selectedProduct)
                                     setSelectedProduct(null)
                                 }}
                             >
-                                📊 View QR & Barcode
+                                📊 View & Print Barcode
                             </Button>
 
                             <div className="flex gap-3 mt-3">
@@ -674,12 +636,12 @@ export function Inventory() {
                     onSuccess={fetchProducts}
                 />
 
-                {/* QR Code & Barcode Modal */}
-                {codeModalProduct && (
+                {/* Barcode Modal */}
+                {barcodeModalProduct && (
                     <ProductCodeModal
-                        isOpen={!!codeModalProduct}
-                        onClose={() => setCodeModalProduct(null)}
-                        product={codeModalProduct}
+                        isOpen={!!barcodeModalProduct}
+                        onClose={() => setBarcodeModalProduct(null)}
+                        product={barcodeModalProduct}
                     />
                 )}
             </div>
