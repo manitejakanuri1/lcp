@@ -1,10 +1,18 @@
 import { useState, type ReactNode } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ThemeToggle } from '../ui'
+import { useAuth } from '../../contexts/AuthContext'
 
 export function Layout({ children }: { children: ReactNode }) {
     const location = useLocation()
+    const navigate = useNavigate()
+    const { profile, signOut } = useAuth()
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+
+    const handleLogout = async () => {
+        await signOut()
+        navigate('/login', { replace: true })
+    }
 
     // All nav items visible (no auth restrictions for now)
     const navItems = [
@@ -54,16 +62,23 @@ export function Layout({ children }: { children: ReactNode }) {
                     <div className="flex items-center gap-3">
                         <ThemeToggle />
 
-                        {/* User info placeholder */}
+                        {/* User info */}
                         <div className="hidden sm:flex items-center gap-3">
                             <div className="text-right">
                                 <p className="text-sm font-medium text-[var(--color-text)]">
-                                    Demo User
+                                    {profile?.full_name || profile?.username || 'User'}
                                 </p>
-                                <p className="text-xs text-[var(--color-text-muted)]">
-                                    Founder
+                                <p className="text-xs text-[var(--color-text-muted)] capitalize">
+                                    {profile?.role || 'User'}
                                 </p>
                             </div>
+                            <button
+                                onClick={handleLogout}
+                                className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium transition-colors"
+                                title="Logout"
+                            >
+                                Logout
+                            </button>
                         </div>
 
                         {/* Mobile menu button */}
@@ -86,6 +101,16 @@ export function Layout({ children }: { children: ReactNode }) {
                 {isMobileMenuOpen && (
                     <div className="md:hidden border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
                         <nav className="p-4 flex flex-col gap-2">
+                            {/* User info on mobile */}
+                            <div className="mb-2 p-3 bg-[var(--color-surface)] rounded-lg">
+                                <p className="text-sm font-medium text-[var(--color-text)]">
+                                    {profile?.full_name || profile?.username || 'User'}
+                                </p>
+                                <p className="text-xs text-[var(--color-text-muted)] capitalize">
+                                    {profile?.role || 'User'}
+                                </p>
+                            </div>
+
                             {navItems.map((item) => (
                                 <Link
                                     key={item.path}
@@ -103,6 +128,15 @@ export function Layout({ children }: { children: ReactNode }) {
                                     {item.label}
                                 </Link>
                             ))}
+
+                            {/* Logout button on mobile */}
+                            <button
+                                onClick={handleLogout}
+                                className="mt-2 px-4 py-3 rounded-xl font-medium text-base bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 transition-colors flex items-center gap-3"
+                            >
+                                <span>🚪</span>
+                                Logout
+                            </button>
                         </nav>
                     </div>
                 )}
