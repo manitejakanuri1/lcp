@@ -9,14 +9,59 @@ interface ProductCodeModalProps {
 }
 
 export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalProps) {
-    const handlePrint = () => {
+    const handleDownload = async () => {
+        const element = document.getElementById('barcode-print-content')
+        if (!element) return
+
+        try {
+            // Import html2canvas
+            const html2canvas = (await import('html2canvas')).default
+
+            // Convert HTML to canvas with high quality settings
+            const canvas = await html2canvas(element, {
+                backgroundColor: '#ffffff',
+                scale: 3, // Higher resolution for better print quality
+                logging: false,
+                useCORS: true,
+                allowTaint: false,
+            })
+
+            // Convert canvas to blob
+            canvas.toBlob((blob) => {
+                if (!blob) return
+
+                // Create download link
+                const url = URL.createObjectURL(blob)
+                const link = document.createElement('a')
+                link.download = `${product.sku}-barcode-label.png`
+                link.href = url
+                link.click()
+
+                // Cleanup
+                setTimeout(() => URL.revokeObjectURL(url), 100)
+            }, 'image/png', 1.0)
+        } catch (error) {
+            console.error('Download failed:', error)
+            alert('Failed to download barcode. Please try again.')
+        }
+    }
+
+    const handlePrint = async () => {
+        // On mobile, just download instead of printing (to avoid print dialog issues)
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+
+        if (isMobile) {
+            // Mobile: download the image instead
+            await handleDownload()
+            return
+        }
+
+        // Desktop: use print dialog
         const printContent = document.getElementById('barcode-print-content')
         if (!printContent) return
 
-        // Clone the barcode content
         const barcodeHTML = printContent.querySelector('.barcode-container')?.innerHTML || ''
 
-        // Create print window with proper mobile support
         const printWindow = window.open('', '_blank', 'width=400,height=600')
         if (!printWindow) return
 
@@ -131,18 +176,14 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     </div>
                 </div>
                 <script>
-                    // Wait for all content including SVG to load
                     function initPrint() {
-                        // Check if barcode SVG is loaded
                         const svg = document.querySelector('svg');
                         if (svg && svg.getAttribute('width')) {
-                            // SVG is ready, wait a bit more then print
                             setTimeout(() => {
                                 window.print();
                                 setTimeout(() => window.close(), 500);
-                            }, 1500);
+                            }, 1000);
                         } else {
-                            // SVG not ready, retry
                             setTimeout(initPrint, 200);
                         }
                     }
@@ -157,43 +198,6 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
             </html>
         `)
         printWindow.document.close()
-    }
-
-    const handleDownload = () => {
-        const element = document.getElementById('barcode-print-content')
-        if (!element) return
-
-        // Create a canvas to convert HTML to image
-        import('html2canvas').then((html2canvas) => {
-            html2canvas.default(element, {
-                backgroundColor: '#ffffff',
-                scale: 2,
-                logging: false,
-            }).then((canvas) => {
-                canvas.toBlob((blob) => {
-                    if (!blob) return
-                    const url = URL.createObjectURL(blob)
-                    const link = document.createElement('a')
-                    link.download = `${product.sku}-barcode.png`
-                    link.href = url
-                    link.click()
-                    URL.revokeObjectURL(url)
-                })
-            })
-        }).catch(() => {
-            // Fallback: just download the SVG
-            const svg = element.querySelector('svg')
-            if (!svg) return
-
-            const svgData = new XMLSerializer().serializeToString(svg)
-            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-            const url = URL.createObjectURL(svgBlob)
-            const link = document.createElement('a')
-            link.download = `${product.sku}-barcode.svg`
-            link.href = url
-            link.click()
-            URL.revokeObjectURL(url)
-        })
     }
 
     return (
@@ -268,17 +272,17 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                 <div className="flex gap-2 print:hidden">
                     <Button
                         variant="primary"
-                        onClick={handlePrint}
-                        fullWidth
-                    >
-                        🖨️ Print Barcode
-                    </Button>
-                    <Button
-                        variant="secondary"
                         onClick={handleDownload}
                         fullWidth
                     >
-                        💾 Download
+                        💾 Download Barcode
+                    </Button>
+                    <Button
+                        variant="secondary"
+                        onClick={handlePrint}
+                        fullWidth
+                    >
+                        🖨️ Print
                     </Button>
                     <Button
                         variant="ghost"
