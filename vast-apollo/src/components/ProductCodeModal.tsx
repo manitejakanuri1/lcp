@@ -450,10 +450,10 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                             >
                                 {/* Shop Name */}
                                 <div style={{
-                                    fontSize: '8px',
+                                    fontSize: '11px',
                                     fontWeight: 'bold',
                                     color: '#000000',
-                                    marginBottom: '2px',
+                                    marginBottom: '3px',
                                     textAlign: 'center',
                                     whiteSpace: 'nowrap'
                                 }}>
@@ -461,39 +461,39 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                                 </div>
 
                                 {/* Barcode */}
-                                <div style={{ marginBottom: '2px' }}>
+                                <div style={{ marginBottom: '3px' }}>
                                     <BarcodeDisplay
                                         value={product.sku}
-                                        width={1.2}
-                                        height={25}
+                                        width={1.3}
+                                        height={28}
                                         format="CODE128"
                                         displayValue={true}
-                                        fontSize={8}
+                                        fontSize={9}
                                     />
                                 </div>
 
                                 {/* Prices */}
                                 <div style={{
                                     display: 'flex',
-                                    gap: '2px',
+                                    gap: '3px',
                                     width: '100%',
-                                    fontSize: '7px',
+                                    fontSize: '10px',
                                     color: '#000000'
                                 }}>
                                     <div style={{
                                         flex: 1,
                                         textAlign: 'center',
-                                        padding: '1px'
+                                        padding: '2px'
                                     }}>
-                                        <div style={{ fontWeight: 'bold', fontSize: '6px' }}>MRP</div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '9px' }}>MRP</div>
                                         <div style={{ fontWeight: 'bold' }}>₹{product.selling_price_a}</div>
                                     </div>
                                     <div style={{
                                         flex: 1,
                                         textAlign: 'center',
-                                        padding: '1px'
+                                        padding: '2px'
                                     }}>
-                                        <div style={{ fontWeight: 'bold', fontSize: '6px' }}>DISC</div>
+                                        <div style={{ fontWeight: 'bold', fontSize: '9px' }}>DISC</div>
                                         <div style={{ fontWeight: 'bold' }}>₹{product.selling_price_b}</div>
                                     </div>
                                 </div>
