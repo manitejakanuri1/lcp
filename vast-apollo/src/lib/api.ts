@@ -247,6 +247,7 @@ export interface User {
     full_name: string | null;
     role: 'founder' | 'salesman' | 'accounting';
     created_at: string;
+    updated_at?: string;
 }
 
 export const usersApi = {

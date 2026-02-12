@@ -91,13 +91,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const signIn = async (username: string, password: string) => {
         try {
             // First, find the user by username to get their email
-            const { data: profile } = await supabase
+            const { data: profile, error: profileError } = await supabase
                 .from('profiles')
                 .select('email')
                 .eq('username', username)
                 .single()
 
-            if (!profile) {
+            if (profileError || !profile) {
                 return { error: new Error('Invalid username or password') }
             }
 
