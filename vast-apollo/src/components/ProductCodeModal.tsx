@@ -23,11 +23,8 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                 <title>Print Barcode - ${product.sku}</title>
                 <style>
                     @media print {
-                        @page {
-                            margin: 0;
-                            size: landscape;
-                        }
-                        body { margin: 0.5cm; }
+                        @page { margin: 0; }
+                        body { margin: 1cm; }
                     }
                     body {
                         display: flex;
@@ -39,51 +36,39 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     }
                     .barcode-label {
                         background: white;
-                        padding: 16px 24px;
-                        border-radius: 8px;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+                        padding: 24px;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                         border: 2px solid #d1d5db;
-                        display: flex;
-                        align-items: center;
-                        gap: 20px;
-                        max-width: 600px;
+                        width: 320px;
                     }
                     .shop-name {
-                        flex-shrink: 0;
-                        text-align: left;
-                        padding-right: 20px;
-                        border-right: 2px solid #d1d5db;
+                        text-align: center;
+                        margin-bottom: 16px;
+                        padding-bottom: 16px;
+                        border-bottom: 2px solid #d1d5db;
                     }
                     .shop-name h2 {
-                        font-size: 18px;
+                        font-size: 20px;
                         font-weight: bold;
                         color: #000;
                         margin: 0;
-                        white-space: nowrap;
-                    }
-                    .barcode-section {
-                        flex: 1;
-                        display: flex;
-                        flex-direction: column;
-                        align-items: center;
                     }
                     .barcode-container {
                         display: flex;
                         justify-content: center;
-                        margin-bottom: 8px;
+                        margin-bottom: 16px;
                     }
                     .prices {
-                        display: flex;
-                        gap: 12px;
-                        width: 100%;
-                        justify-content: center;
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 8px;
                     }
                     .price-box {
-                        padding: 8px 16px;
-                        border-radius: 6px;
+                        padding: 12px;
+                        border-radius: 8px;
                         text-align: center;
                         color: white;
-                        min-width: 100px;
                     }
                     .price-box.mrp {
                         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -92,13 +77,13 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
                     }
                     .price-label {
-                        font-size: 9px;
+                        font-size: 10px;
                         font-weight: 600;
                         text-transform: uppercase;
-                        margin-bottom: 2px;
+                        margin-bottom: 4px;
                     }
                     .price-value {
-                        font-size: 18px;
+                        font-size: 20px;
                         font-weight: bold;
                     }
                 </style>
@@ -108,19 +93,17 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     <div class="shop-name">
                         <h2>Lakshmi Saree Mandir</h2>
                     </div>
-                    <div class="barcode-section">
-                        <div class="barcode-container">
-                            ${printContent.querySelector('.barcode-container')?.innerHTML || ''}
+                    <div class="barcode-container">
+                        ${printContent.querySelector('.barcode-container')?.innerHTML || ''}
+                    </div>
+                    <div class="prices">
+                        <div class="price-box mrp">
+                            <p class="price-label">MRP</p>
+                            <p class="price-value">₹${product.selling_price_a}</p>
                         </div>
-                        <div class="prices">
-                            <div class="price-box mrp">
-                                <p class="price-label">MRP</p>
-                                <p class="price-value">₹${product.selling_price_a}</p>
-                            </div>
-                            <div class="price-box discount">
-                                <p class="price-label">DISCOUNT</p>
-                                <p class="price-value">₹${product.selling_price_b}</p>
-                            </div>
+                        <div class="price-box discount">
+                            <p class="price-label">DISCOUNT</p>
+                            <p class="price-value">₹${product.selling_price_b}</p>
                         </div>
                     </div>
                 </div>
