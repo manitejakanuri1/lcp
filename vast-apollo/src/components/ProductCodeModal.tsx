@@ -114,7 +114,7 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         setTimeout(() => {
                             window.print();
                             window.close();
-                        }, 250);
+                        }, 1000);
                     };
                 </script>
             </body>
