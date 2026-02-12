@@ -5,6 +5,7 @@ import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
+import { BulkBarcodeModal } from '../components/BulkBarcodeModal'
 import { v4 as uuidv4 } from 'uuid'
 
 export function Inventory() {
@@ -20,6 +21,7 @@ export function Inventory() {
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
+    const [isBulkBarcodeModalOpen, setIsBulkBarcodeModalOpen] = useState(false)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -194,6 +196,9 @@ export function Inventory() {
                         </p>
                     </div>
                     <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => setIsBulkBarcodeModalOpen(true)}>
+                            📄 Bulk Barcodes
+                        </Button>
                         <Button variant="secondary" onClick={() => setIsPurchaseModalOpen(true)}>
                             📥 Stock In
                         </Button>
@@ -644,6 +649,13 @@ export function Inventory() {
                         product={barcodeModalProduct}
                     />
                 )}
+
+                {/* Bulk Barcode Modal */}
+                <BulkBarcodeModal
+                    isOpen={isBulkBarcodeModalOpen}
+                    onClose={() => setIsBulkBarcodeModalOpen(false)}
+                    products={products}
+                />
             </div>
         </Layout>
     )
