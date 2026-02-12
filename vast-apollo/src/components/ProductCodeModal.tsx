@@ -419,81 +419,87 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     style={{
                         position: 'absolute',
                         left: '-9999px',
-                        width: '794px', // A4 width at 96 DPI
-                        height: '1123px', // A4 height at 96 DPI
+                        width: '210mm', // A4 width
+                        height: '297mm', // A4 height
                         backgroundColor: '#ffffff',
-                        padding: '20px',
+                        padding: '5mm',
+                        boxSizing: 'border-box'
+                    }}
+                >
+                    <div style={{
                         display: 'grid',
                         gridTemplateColumns: 'repeat(3, 1fr)',
                         gridTemplateRows: 'repeat(7, 1fr)',
-                        gap: '10px'
-                    }}
-                >
-                    {Array.from({ length: 21 }).map((_, index) => (
-                        <div
-                            key={index}
-                            style={{
-                                border: '1px solid #000',
-                                padding: '8px',
-                                backgroundColor: '#fff',
-                                display: 'flex',
-                                flexDirection: 'column',
-                                alignItems: 'center',
-                                justifyContent: 'center'
-                            }}
-                        >
-                            {/* Shop Name */}
-                            <div style={{
-                                fontSize: '10px',
-                                fontWeight: 'bold',
-                                color: '#000',
-                                marginBottom: '4px',
-                                textAlign: 'center'
-                            }}>
-                                Lakshmi Saree Mandir
-                            </div>
-
-                            {/* Barcode */}
-                            <div style={{ marginBottom: '4px' }}>
-                                <BarcodeDisplay
-                                    value={product.sku}
-                                    width={1.5}
-                                    height={30}
-                                    format="CODE128"
-                                    displayValue={true}
-                                    fontSize={10}
-                                />
-                            </div>
-
-                            {/* Prices */}
-                            <div style={{
-                                display: 'flex',
-                                gap: '4px',
-                                width: '100%',
-                                fontSize: '9px',
-                                color: '#000'
-                            }}>
+                        gap: '0',
+                        width: '100%',
+                        height: '100%'
+                    }}>
+                        {Array.from({ length: 21 }).map((_, index) => (
+                            <div
+                                key={index}
+                                style={{
+                                    border: '2px solid #000000',
+                                    backgroundColor: '#ffffff',
+                                    display: 'flex',
+                                    flexDirection: 'column',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    padding: '4px',
+                                    boxSizing: 'border-box'
+                                }}
+                            >
+                                {/* Shop Name */}
                                 <div style={{
-                                    flex: 1,
+                                    fontSize: '8px',
+                                    fontWeight: 'bold',
+                                    color: '#000000',
+                                    marginBottom: '2px',
                                     textAlign: 'center',
-                                    border: '1px solid #000',
-                                    padding: '2px'
+                                    whiteSpace: 'nowrap'
                                 }}>
-                                    <div style={{ fontWeight: 'bold' }}>MRP</div>
-                                    <div>₹{product.selling_price_a}</div>
+                                    Lakshmi Saree Mandir
                                 </div>
+
+                                {/* Barcode */}
+                                <div style={{ marginBottom: '2px' }}>
+                                    <BarcodeDisplay
+                                        value={product.sku}
+                                        width={1.2}
+                                        height={25}
+                                        format="CODE128"
+                                        displayValue={true}
+                                        fontSize={8}
+                                    />
+                                </div>
+
+                                {/* Prices */}
                                 <div style={{
-                                    flex: 1,
-                                    textAlign: 'center',
-                                    border: '1px solid #000',
-                                    padding: '2px'
+                                    display: 'flex',
+                                    gap: '2px',
+                                    width: '100%',
+                                    fontSize: '7px',
+                                    color: '#000000'
                                 }}>
-                                    <div style={{ fontWeight: 'bold' }}>DISC</div>
-                                    <div>₹{product.selling_price_b}</div>
+                                    <div style={{
+                                        flex: 1,
+                                        textAlign: 'center',
+                                        padding: '1px'
+                                    }}>
+                                        <div style={{ fontWeight: 'bold', fontSize: '6px' }}>MRP</div>
+                                        <div style={{ fontWeight: 'bold' }}>₹{product.selling_price_a}</div>
+                                    </div>
+                                    <div style={{
+                                        flex: 1,
+                                        textAlign: 'center',
+                                        padding: '1px'
+                                    }}>
+                                        <div style={{ fontWeight: 'bold', fontSize: '6px' }}>DISC</div>
+                                        <div style={{ fontWeight: 'bold' }}>₹{product.selling_price_b}</div>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
+                    </div>
                 </div>
 
                 {/* Action Buttons */}
