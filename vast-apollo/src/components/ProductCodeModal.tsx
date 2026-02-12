@@ -9,6 +9,57 @@ interface ProductCodeModalProps {
 }
 
 export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalProps) {
+    const handleDownloadBulk = async () => {
+        const element = document.getElementById('barcode-bulk-content')
+        if (!element) {
+            console.error('Bulk barcode element not found')
+            alert('Failed to download barcode sheet. Element not found.')
+            return
+        }
+
+        try {
+            const html2canvasModule = await import('html2canvas')
+            const html2canvas = html2canvasModule.default || html2canvasModule
+
+            console.log('Generating A4 barcode sheet...')
+
+            const canvas = await html2canvas(element, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+                useCORS: true,
+                allowTaint: true,
+                imageTimeout: 0,
+            })
+
+            console.log('Canvas created, converting to blob...')
+
+            canvas.toBlob((blob) => {
+                if (!blob) {
+                    console.error('Failed to create blob')
+                    alert('Failed to create image. Please try again.')
+                    return
+                }
+
+                const url = URL.createObjectURL(blob)
+                const link = document.createElement('a')
+                const timestamp = new Date().getTime()
+                link.download = `${product.sku}-bulk-${timestamp}.png`
+                link.href = url
+
+                document.body.appendChild(link)
+                link.click()
+                document.body.removeChild(link)
+
+                setTimeout(() => URL.revokeObjectURL(url), 1000)
+                console.log('Bulk download initiated successfully')
+            }, 'image/png', 1.0)
+        } catch (error) {
+            console.error('Bulk download failed:', error)
+            alert(`Failed to download barcode sheet: ${error instanceof Error ? error.message : 'Unknown error'}`)
+        }
+    }
+
     const handleDownload = async () => {
         const element = document.getElementById('barcode-print-content')
         if (!element) {
@@ -362,21 +413,104 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     </div>
                 </div>
 
+                {/* Hidden A4 Bulk Print Sheet (21 labels) */}
+                <div
+                    id="barcode-bulk-content"
+                    style={{
+                        position: 'absolute',
+                        left: '-9999px',
+                        width: '794px', // A4 width at 96 DPI
+                        height: '1123px', // A4 height at 96 DPI
+                        backgroundColor: '#ffffff',
+                        padding: '20px',
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(3, 1fr)',
+                        gridTemplateRows: 'repeat(7, 1fr)',
+                        gap: '10px'
+                    }}
+                >
+                    {Array.from({ length: 21 }).map((_, index) => (
+                        <div
+                            key={index}
+                            style={{
+                                border: '1px solid #000',
+                                padding: '8px',
+                                backgroundColor: '#fff',
+                                display: 'flex',
+                                flexDirection: 'column',
+                                alignItems: 'center',
+                                justifyContent: 'center'
+                            }}
+                        >
+                            {/* Shop Name */}
+                            <div style={{
+                                fontSize: '10px',
+                                fontWeight: 'bold',
+                                color: '#000',
+                                marginBottom: '4px',
+                                textAlign: 'center'
+                            }}>
+                                Lakshmi Saree Mandir
+                            </div>
+
+                            {/* Barcode */}
+                            <div style={{ marginBottom: '4px' }}>
+                                <BarcodeDisplay
+                                    value={product.sku}
+                                    width={1.5}
+                                    height={30}
+                                    format="CODE128"
+                                    displayValue={true}
+                                    fontSize={10}
+                                />
+                            </div>
+
+                            {/* Prices */}
+                            <div style={{
+                                display: 'flex',
+                                gap: '4px',
+                                width: '100%',
+                                fontSize: '9px',
+                                color: '#000'
+                            }}>
+                                <div style={{
+                                    flex: 1,
+                                    textAlign: 'center',
+                                    border: '1px solid #000',
+                                    padding: '2px'
+                                }}>
+                                    <div style={{ fontWeight: 'bold' }}>MRP</div>
+                                    <div>₹{product.selling_price_a}</div>
+                                </div>
+                                <div style={{
+                                    flex: 1,
+                                    textAlign: 'center',
+                                    border: '1px solid #000',
+                                    padding: '2px'
+                                }}>
+                                    <div style={{ fontWeight: 'bold' }}>DISC</div>
+                                    <div>₹{product.selling_price_b}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
                 {/* Action Buttons */}
                 <div className="flex gap-2 print:hidden">
                     <Button
                         variant="primary"
-                        onClick={handleDownload}
+                        onClick={handleDownloadBulk}
                         fullWidth
                     >
-                        💾 Download Barcode
+                        📄 A4 Sheet (21 Labels)
                     </Button>
                     <Button
                         variant="secondary"
-                        onClick={handlePrint}
+                        onClick={handleDownload}
                         fullWidth
                     >
-                        🖨️ Print
+                        💾 Single Label
                     </Button>
                     <Button
                         variant="ghost"
