@@ -11,38 +11,69 @@ interface ProductCodeModalProps {
 export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalProps) {
     const handleDownload = async () => {
         const element = document.getElementById('barcode-print-content')
-        if (!element) return
+        if (!element) {
+            console.error('Barcode element not found')
+            alert('Failed to download barcode. Element not found.')
+            return
+        }
 
         try {
-            // Import html2canvas
-            const html2canvas = (await import('html2canvas')).default
+            // Import html2canvas dynamically
+            const html2canvasModule = await import('html2canvas')
+            const html2canvas = html2canvasModule.default || html2canvasModule
+
+            console.log('Generating barcode image...')
 
             // Convert HTML to canvas with high quality settings
             const canvas = await html2canvas(element, {
                 backgroundColor: '#ffffff',
                 scale: 3, // Higher resolution for better print quality
-                logging: false,
+                logging: true, // Enable logging for debugging
                 useCORS: true,
-                allowTaint: false,
+                allowTaint: true, // Allow tainted canvas
+                removeContainer: false,
+                imageTimeout: 0,
+                onclone: (clonedDoc: Document) => {
+                    // Ensure styles are copied
+                    const clonedElement = clonedDoc.getElementById('barcode-print-content')
+                    if (clonedElement) {
+                        clonedElement.style.display = 'block'
+                        clonedElement.style.visibility = 'visible'
+                    }
+                }
             })
 
-            // Convert canvas to blob
+            console.log('Canvas created, converting to blob...')
+
+            // Convert canvas to blob and download
             canvas.toBlob((blob) => {
-                if (!blob) return
+                if (!blob) {
+                    console.error('Failed to create blob')
+                    alert('Failed to create image. Please try again.')
+                    return
+                }
+
+                console.log('Blob created, initiating download...')
 
                 // Create download link
                 const url = URL.createObjectURL(blob)
                 const link = document.createElement('a')
                 link.download = `${product.sku}-barcode-label.png`
                 link.href = url
+
+                // Trigger download
+                document.body.appendChild(link)
                 link.click()
+                document.body.removeChild(link)
 
                 // Cleanup
-                setTimeout(() => URL.revokeObjectURL(url), 100)
+                setTimeout(() => URL.revokeObjectURL(url), 1000)
+
+                console.log('Download initiated successfully')
             }, 'image/png', 1.0)
         } catch (error) {
             console.error('Download failed:', error)
-            alert('Failed to download barcode. Please try again.')
+            alert(`Failed to download barcode: ${error instanceof Error ? error.message : 'Unknown error'}`)
         }
     }
 
