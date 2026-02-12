@@ -246,6 +246,12 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         required
                                     />
                                     <Input
+                                        label="Cost Code"
+                                        value={item.cost_code || ''}
+                                        onChange={(e) => handleItemChange(index, 'cost_code', e.target.value)}
+                                        placeholder="e.g. CC-001"
+                                    />
+                                    <Input
                                         label="MRP (₹)"
                                         type="number"
                                         value={item.selling_price_a.toString()}
@@ -258,15 +264,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         value={item.selling_price_b.toString()}
                                         onChange={(e) => handleItemChange(index, 'selling_price_b', parseFloat(e.target.value) || 0)}
                                     />
+                                </div>
+
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                                     <Input
                                         label="Price C (₹)"
                                         type="number"
                                         value={item.selling_price_c.toString()}
                                         onChange={(e) => handleItemChange(index, 'selling_price_c', parseFloat(e.target.value) || 0)}
                                     />
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
                                     <Input
                                         label="HSN Code"
                                         value={item.hsn_code || ''}

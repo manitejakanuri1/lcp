@@ -280,6 +280,18 @@ export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModal
                                             <div style={{ fontWeight: 'bold' }}>₹{product.selling_price_b}</div>
                                         </div>
                                     </div>
+                                    {/* Cost Code */}
+                                    {product.cost_code && (
+                                        <div style={{
+                                            marginTop: '2px',
+                                            fontSize: '8px',
+                                            fontWeight: 'bold',
+                                            color: '#000000',
+                                            textAlign: 'center'
+                                        }}>
+                                            Code: {product.cost_code}
+                                        </div>
+                                    )}
                                 </div>
                             ))}
                         </div>
