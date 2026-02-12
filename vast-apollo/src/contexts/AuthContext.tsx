@@ -95,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 .from('profiles')
                 .select('email')
                 .eq('username', username)
-                .single()
+                .single<{ email: string }>()
 
             if (profileError || !profile) {
                 return { error: new Error('Invalid username or password') }
