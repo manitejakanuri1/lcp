@@ -3,6 +3,7 @@ import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
+import { ProductCodeModal } from '../components/ProductCodeModal'
 import { QRCodeSVG } from 'qrcode.react'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -18,6 +19,7 @@ export function Inventory() {
     const [editFormData, setEditFormData] = useState<Partial<Product>>({})
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
+    const [codeModalProduct, setCodeModalProduct] = useState<Product | null>(null)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -545,6 +547,18 @@ export function Inventory() {
                                 🖨️ Print QR Label
                             </Button>
 
+                            {/* New Barcode/QR Button */}
+                            <Button
+                                variant="primary"
+                                fullWidth
+                                onClick={() => {
+                                    setCodeModalProduct(selectedProduct)
+                                    setSelectedProduct(null)
+                                }}
+                            >
+                                📊 View QR & Barcode
+                            </Button>
+
                             <div className="flex gap-3 mt-3">
                                 <Button
                                     variant="secondary"
@@ -659,6 +673,15 @@ export function Inventory() {
                     onClose={() => setIsPurchaseModalOpen(false)}
                     onSuccess={fetchProducts}
                 />
+
+                {/* QR Code & Barcode Modal */}
+                {codeModalProduct && (
+                    <ProductCodeModal
+                        isOpen={!!codeModalProduct}
+                        onClose={() => setCodeModalProduct(null)}
+                        product={codeModalProduct}
+                    />
+                )}
             </div>
         </Layout>
     )
