@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
-import { usersApi } from '../lib/api'
-import { authApi } from '../lib/api'
-import type { Profile } from '../types/database'
+import { usersApi, authApi, type User } from '../lib/api'
 
 export function Users() {
-    const [users, setUsers] = useState<Profile[]>([])
+    const [users, setUsers] = useState<User[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
