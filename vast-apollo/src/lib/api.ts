@@ -27,17 +27,17 @@ async function request<T>(
 // ================== AUTH API ==================
 
 export const authApi = {
-    login: async (email: string, password: string) => {
+    login: async (username: string, password: string) => {
         return request<{ user: User }>('/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ username, password }),
         });
     },
 
-    register: async (email: string, password: string, fullName: string, role: string) => {
+    register: async (username: string, email: string, password: string, fullName: string, role: string) => {
         return request<{ message: string }>('/auth/register', {
             method: 'POST',
-            body: JSON.stringify({ email, password, fullName, role }),
+            body: JSON.stringify({ username, email, password, fullName, role }),
         });
     },
 
@@ -243,8 +243,9 @@ export const analyticsApi = {
 export interface User {
     id: string;
     email: string;
+    username: string;
     full_name: string | null;
-    role: 'founder' | 'salesman';
+    role: 'founder' | 'salesman' | 'accounting';
     created_at: string;
 }
 

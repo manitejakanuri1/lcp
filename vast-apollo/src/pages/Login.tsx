@@ -5,7 +5,7 @@ import { Button, Input } from '../components/ui'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
 
 export function LoginPage() {
-    const [email, setEmail] = useState('')
+    const [username, setUsername] = useState('')
     const [password, setPassword] = useState('')
     const [error, setError] = useState('')
     const [isLoading, setIsLoading] = useState(false)
@@ -22,7 +22,7 @@ export function LoginPage() {
         setIsLoading(true)
 
         try {
-            const { error } = await signIn(email, password)
+            const { error } = await signIn(username, password)
 
             if (error) {
                 setError(error.message)
@@ -110,13 +110,13 @@ export function LoginPage() {
 
                                 <form onSubmit={handleSubmit} className="space-y-5">
                                     <Input
-                                        type="email"
-                                        label="Email"
-                                        placeholder="Enter your email"
-                                        value={email}
-                                        onChange={(e) => setEmail(e.target.value)}
+                                        type="text"
+                                        label="Username"
+                                        placeholder="Enter your username"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
                                         required
-                                        autoComplete="email"
+                                        autoComplete="username"
                                         autoFocus
                                     />
 

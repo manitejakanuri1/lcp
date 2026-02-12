@@ -13,7 +13,7 @@ interface AuthContextType {
     isFounder: boolean
     isSalesman: boolean
     isAccounting: boolean
-    signIn: (email: string, password: string) => Promise<{ error: Error | null }>
+    signIn: (username: string, password: string) => Promise<{ error: Error | null }>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
 }
@@ -88,10 +88,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return () => subscription.unsubscribe()
     }, [])
 
-    const signIn = async (email: string, password: string) => {
+    const signIn = async (username: string, password: string) => {
         try {
+            // First, find the user by username to get their email
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('email')
+                .eq('username', username)
+                .single()
+
+            if (!profile) {
+                return { error: new Error('Invalid username or password') }
+            }
+
             const { error } = await supabase.auth.signInWithPassword({
-                email,
+                email: profile.email,
                 password
             })
             return { error: error as Error | null }

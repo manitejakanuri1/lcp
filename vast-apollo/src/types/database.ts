@@ -9,6 +9,7 @@ export interface Database {
                 Row: {
                     id: string
                     email: string
+                    username: string
                     full_name: string | null
                     role: UserRole
                     created_at: string

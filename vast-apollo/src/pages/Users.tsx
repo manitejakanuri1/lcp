@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
-import { supabase } from '../lib/supabase'
+import { usersApi } from '../lib/api'
+import { authApi } from '../lib/api'
 import type { Profile } from '../types/database'
 
 export function Users() {
@@ -10,12 +11,14 @@ export function Users() {
     const [isModalOpen, setIsModalOpen] = useState(false)
     const [isSubmitting, setIsSubmitting] = useState(false)
     const [error, setError] = useState('')
+    const [successMessage, setSuccessMessage] = useState('')
 
     const [formData, setFormData] = useState({
+        username: '',
         email: '',
         password: '',
         full_name: '',
-        role: 'salesman' as 'founder' | 'salesman'
+        role: 'salesman' as 'founder' | 'salesman' | 'accounting'
     })
 
     useEffect(() => {
@@ -24,12 +27,7 @@ export function Users() {
 
     const fetchUsers = async () => {
         try {
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .order('created_at', { ascending: false })
-
-            if (error) throw error
+            const data = await usersApi.getAll()
             setUsers(data || [])
         } catch (err) {
             console.error('Error fetching users:', err)
@@ -41,28 +39,25 @@ export function Users() {
     const handleCreateUser = async (e: React.FormEvent) => {
         e.preventDefault()
         setError('')
+        setSuccessMessage('')
         setIsSubmitting(true)
 
         try {
-            // Create user via Supabase Auth
-            const { error } = await supabase.auth.signUp({
-                email: formData.email,
-                password: formData.password,
-                options: {
-                    data: {
-                        full_name: formData.full_name,
-                        role: formData.role
-                    }
-                }
-            })
+            // Create user via API
+            const result = await authApi.register(
+                formData.username,
+                formData.email,
+                formData.password,
+                formData.full_name,
+                formData.role
+            )
 
-            if (error) throw error
-
-            setFormData({ email: '', password: '', full_name: '', role: 'salesman' })
+            setSuccessMessage(`User "${formData.username}" created successfully!`)
+            setFormData({ username: '', email: '', password: '', full_name: '', role: 'salesman' })
             setIsModalOpen(false)
 
             // Refresh user list
-            setTimeout(fetchUsers, 1000) // Wait for trigger to create profile
+            fetchUsers()
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : 'Error creating user'
             setError(message)
@@ -72,24 +67,17 @@ export function Users() {
     }
 
     const handleDeleteUser = async (userId: string, userName: string) => {
-        if (!confirm(`Are you sure you want to remove "${userName}"? This action cannot be undone.`)) {
-            return
-        }
+        alert('User deletion is disabled for security. Please manage users through Supabase Dashboard.')
+    }
 
+    const handleRoleChange = async (userId: string, newRole: string) => {
         try {
-            const { error } = await supabase
-                .from('profiles')
-                .delete()
-                .eq('id', userId)
-
-            if (error) throw error
-
-            // Refresh user list
+            await usersApi.updateRole(userId, newRole)
+            setSuccessMessage('User role updated successfully')
             fetchUsers()
-        } catch (err: unknown) {
-            console.error('Error deleting user:', err)
-            const message = err instanceof Error ? err.message : 'Unknown error'
-            alert('Error removing user: ' + message)
+        } catch (err) {
+            console.error('Error updating role:', err)
+            setError('Failed to update user role')
         }
     }
 
@@ -161,6 +149,13 @@ export function Users() {
                 <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add New User">
                     <form onSubmit={handleCreateUser} className="space-y-4">
                         <Input
+                            label="Username"
+                            value={formData.username}
+                            onChange={(e) => setFormData({ ...formData, username: e.target.value.toLowerCase() })}
+                            required
+                            helperText="Lowercase letters and numbers only"
+                        />
+                        <Input
                             label="Full Name"
                             value={formData.full_name}
                             onChange={(e) => setFormData({ ...formData, full_name: e.target.value })}
@@ -185,27 +180,40 @@ export function Users() {
                             <label className="block text-sm font-medium text-[var(--color-text)] mb-2">
                                 Role
                             </label>
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-3 gap-2">
                                 <button
                                     type="button"
                                     onClick={() => setFormData({ ...formData, role: 'salesman' })}
                                     className={`
-                    flex-1 py-3 rounded-xl font-medium transition-all
+                    py-3 rounded-xl font-medium transition-all
                     ${formData.role === 'salesman'
-                                            ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                            ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white'
                                             : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                         }
                   `}
                                 >
-                                    🛒 Salesman
+                                    💼 Salesman
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, role: 'accounting' })}
+                                    className={`
+                    py-3 rounded-xl font-medium transition-all
+                    ${formData.role === 'accounting'
+                                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
+                                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
+                                        }
+                  `}
+                                >
+                                    📊 Accounting
                                 </button>
                                 <button
                                     type="button"
                                     onClick={() => setFormData({ ...formData, role: 'founder' })}
                                     className={`
-                    flex-1 py-3 rounded-xl font-medium transition-all
+                    py-3 rounded-xl font-medium transition-all
                     ${formData.role === 'founder'
-                                            ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
                                             : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                         }
                   `}
@@ -218,6 +226,12 @@ export function Users() {
                         {error && (
                             <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
                                 {error}
+                            </div>
+                        )}
+
+                        {successMessage && (
+                            <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-500 text-sm">
+                                {successMessage}
                             </div>
                         )}
 

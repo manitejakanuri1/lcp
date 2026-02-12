@@ -66,33 +66,39 @@ const authenticateToken = (req, res, next) => {
 
 // ================== AUTH ROUTES ==================
 
-// Login
+// Login with username
 app.post('/api/auth/login', async (req, res) => {
     try {
-        const { email, password } = req.body;
+        const { username, password } = req.body;
 
+        // First, find the user by username
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('username', username)
+            .single();
+
+        if (profileError || !profile) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        // Use the email from profile to authenticate
         const { data, error } = await supabase.auth.signInWithPassword({
-            email,
+            email: profile.email,
             password
         });
 
         if (error) {
-            return res.status(401).json({ error: error.message });
+            return res.status(401).json({ error: 'Invalid username or password' });
         }
-
-        // Get user profile
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
 
         // Create JWT
         const token = jwt.sign(
             {
                 id: data.user.id,
                 email: data.user.email,
-                role: profile?.role || 'salesman'
+                username: profile.username,
+                role: profile.role
             },
             process.env.JWT_SECRET,
             { expiresIn: '7d' }
@@ -110,10 +116,12 @@ app.post('/api/auth/login', async (req, res) => {
             user: {
                 id: data.user.id,
                 email: data.user.email,
+                username: profile.username,
                 ...profile
             }
         });
     } catch (err) {
+        console.error('Login error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -121,13 +129,24 @@ app.post('/api/auth/login', async (req, res) => {
 // Register
 app.post('/api/auth/register', async (req, res) => {
     try {
-        const { email, password, fullName, role } = req.body;
+        const { username, email, password, fullName, role } = req.body;
+
+        // Check if username already exists
+        const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('username')
+            .eq('username', username)
+            .single();
+
+        if (existingProfile) {
+            return res.status(400).json({ error: 'Username already exists' });
+        }
 
         const { data, error } = await supabase.auth.admin.createUser({
             email,
             password,
             email_confirm: true,
-            user_metadata: { full_name: fullName, role }
+            user_metadata: { full_name: fullName, role, username }
         });
 
         if (error) {
@@ -138,12 +157,14 @@ app.post('/api/auth/register', async (req, res) => {
         await supabase.from('profiles').insert({
             id: data.user.id,
             email,
+            username,
             full_name: fullName,
             role: role || 'salesman'
         });
 
-        res.json({ message: 'User created successfully' });
+        res.json({ message: 'User created successfully', username });
     } catch (err) {
+        console.error('Registration error:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
