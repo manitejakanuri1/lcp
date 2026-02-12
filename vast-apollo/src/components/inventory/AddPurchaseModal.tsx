@@ -102,7 +102,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 saree_name: item.saree_type, // Use saree_type as saree_name
                 selling_price: item.selling_price_a, // Backward compatibility
                 selling_price_b: item.selling_price_b || item.selling_price_a, // Default to MRP
-                selling_price_c: item.selling_price_c || item.selling_price_a  // Default to MRP
+                selling_price_c: item.selling_price_c || item.selling_price_a,  // Default to MRP
+                cost_code: item.cost_code || null // Ensure cost_code is explicitly passed
             }))
 
             await vendorBillsApi.create({
