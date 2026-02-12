@@ -13,17 +13,31 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
         const printContent = document.getElementById('barcode-print-content')
         if (!printContent) return
 
-        const printWindow = window.open('', '_blank')
+        // Clone the barcode content
+        const barcodeHTML = printContent.querySelector('.barcode-container')?.innerHTML || ''
+
+        // Create print window with proper mobile support
+        const printWindow = window.open('', '_blank', 'width=400,height=600')
         if (!printWindow) return
 
         printWindow.document.write(`
             <!DOCTYPE html>
             <html>
             <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Print Barcode - ${product.sku}</title>
                 <style>
+                    * {
+                        margin: 0;
+                        padding: 0;
+                        box-sizing: border-box;
+                    }
                     @media print {
-                        @page { margin: 0; }
+                        @page {
+                            margin: 0;
+                            size: portrait;
+                        }
                         body { margin: 1cm; }
                     }
                     body {
@@ -32,7 +46,9 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         align-items: center;
                         min-height: 100vh;
                         margin: 0;
+                        padding: 20px;
                         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                        background: #f5f5f5;
                     }
                     .barcode-label {
                         background: white;
@@ -40,7 +56,8 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         border-radius: 12px;
                         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
                         border: 2px solid #d1d5db;
-                        width: 320px;
+                        width: 100%;
+                        max-width: 320px;
                     }
                     .shop-name {
                         text-align: center;
@@ -58,6 +75,11 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         display: flex;
                         justify-content: center;
                         margin-bottom: 16px;
+                        min-height: 80px;
+                    }
+                    .barcode-container svg {
+                        max-width: 100%;
+                        height: auto;
                     }
                     .prices {
                         display: grid;
@@ -68,7 +90,6 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         padding: 12px;
                         border-radius: 8px;
                         text-align: center;
-                        color: white;
                     }
                     .price-box.mrp {
                         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -96,7 +117,7 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         <h2>Lakshmi Saree Mandir</h2>
                     </div>
                     <div class="barcode-container">
-                        ${printContent.querySelector('.barcode-container')?.innerHTML || ''}
+                        ${barcodeHTML}
                     </div>
                     <div class="prices">
                         <div class="price-box mrp">
@@ -110,12 +131,27 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     </div>
                 </div>
                 <script>
-                    window.onload = () => {
-                        setTimeout(() => {
-                            window.print();
-                            window.close();
-                        }, 1000);
-                    };
+                    // Wait for all content including SVG to load
+                    function initPrint() {
+                        // Check if barcode SVG is loaded
+                        const svg = document.querySelector('svg');
+                        if (svg && svg.getAttribute('width')) {
+                            // SVG is ready, wait a bit more then print
+                            setTimeout(() => {
+                                window.print();
+                                setTimeout(() => window.close(), 500);
+                            }, 1500);
+                        } else {
+                            // SVG not ready, retry
+                            setTimeout(initPrint, 200);
+                        }
+                    }
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', initPrint);
+                    } else {
+                        initPrint();
+                    }
                 </script>
             </body>
             </html>
