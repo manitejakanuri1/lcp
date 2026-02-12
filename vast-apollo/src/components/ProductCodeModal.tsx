@@ -307,15 +307,17 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
 
                         {/* Price Boxes */}
                         <div style={{
-                            display: 'grid',
-                            gridTemplateColumns: '1fr 1fr',
-                            gap: '8px'
+                            display: 'flex',
+                            gap: '8px',
+                            width: '100%'
                         }}>
                             <div style={{
                                 backgroundColor: '#10b981',
                                 padding: '12px',
                                 borderRadius: '8px',
-                                textAlign: 'center'
+                                textAlign: 'center',
+                                flex: '1',
+                                width: '50%'
                             }}>
                                 <p style={{
                                     fontSize: '10px',
@@ -323,7 +325,7 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                                     textTransform: 'uppercase',
                                     marginBottom: '4px',
                                     color: '#000000',
-                                    margin: 0
+                                    margin: '0 0 4px 0'
                                 }}>MRP</p>
                                 <p style={{
                                     fontSize: '20px',
@@ -336,7 +338,9 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                                 backgroundColor: '#ef4444',
                                 padding: '12px',
                                 borderRadius: '8px',
-                                textAlign: 'center'
+                                textAlign: 'center',
+                                flex: '1',
+                                width: '50%'
                             }}>
                                 <p style={{
                                     fontSize: '10px',
@@ -344,7 +348,7 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                                     textTransform: 'uppercase',
                                     marginBottom: '4px',
                                     color: '#000000',
-                                    margin: 0
+                                    margin: '0 0 4px 0'
                                 }}>DISCOUNT</p>
                                 <p style={{
                                     fontSize: '20px',
