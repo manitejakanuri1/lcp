@@ -263,18 +263,38 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                 <div className="flex justify-center">
                     <div
                         id="barcode-print-content"
-                        className="barcode-label bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300"
-                        style={{ width: '320px' }}
+                        style={{
+                            width: '320px',
+                            backgroundColor: '#ffffff',
+                            padding: '24px',
+                            borderRadius: '12px',
+                            boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
+                            border: '2px solid #d1d5db'
+                        }}
                     >
                         {/* Shop Name */}
-                        <div className="shop-name text-center mb-3 pb-3 border-b-2 border-gray-300">
-                            <h2 className="text-xl font-bold" style={{ color: '#000' }}>
+                        <div style={{
+                            textAlign: 'center',
+                            marginBottom: '16px',
+                            paddingBottom: '16px',
+                            borderBottom: '2px solid #d1d5db'
+                        }}>
+                            <h2 style={{
+                                fontSize: '20px',
+                                fontWeight: 'bold',
+                                color: '#000000',
+                                margin: 0
+                            }}>
                                 Lakshmi Saree Mandir
                             </h2>
                         </div>
 
                         {/* Barcode */}
-                        <div className="barcode-container flex justify-center mb-4">
+                        <div style={{
+                            display: 'flex',
+                            justifyContent: 'center',
+                            marginBottom: '16px'
+                        }}>
                             <BarcodeDisplay
                                 value={product.sku}
                                 width={2}
@@ -286,14 +306,52 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         </div>
 
                         {/* Price Boxes */}
-                        <div className="prices grid grid-cols-2 gap-2">
-                            <div className="price-box mrp bg-gradient-to-r from-green-500 to-green-600 text-white px-3 py-2 rounded-lg text-center">
-                                <p className="price-label text-xs font-semibold">MRP</p>
-                                <p className="price-value text-xl font-bold">₹{product.selling_price_a}</p>
+                        <div style={{
+                            display: 'grid',
+                            gridTemplateColumns: '1fr 1fr',
+                            gap: '8px'
+                        }}>
+                            <div style={{
+                                backgroundColor: '#10b981',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <p style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    textTransform: 'uppercase',
+                                    marginBottom: '4px',
+                                    color: '#000000',
+                                    margin: 0
+                                }}>MRP</p>
+                                <p style={{
+                                    fontSize: '20px',
+                                    fontWeight: 'bold',
+                                    color: '#000000',
+                                    margin: 0
+                                }}>₹{product.selling_price_a}</p>
                             </div>
-                            <div className="price-box discount bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg text-center">
-                                <p className="price-label text-xs font-semibold">DISCOUNT</p>
-                                <p className="price-value text-xl font-bold">₹{product.selling_price_b}</p>
+                            <div style={{
+                                backgroundColor: '#ef4444',
+                                padding: '12px',
+                                borderRadius: '8px',
+                                textAlign: 'center'
+                            }}>
+                                <p style={{
+                                    fontSize: '10px',
+                                    fontWeight: '700',
+                                    textTransform: 'uppercase',
+                                    marginBottom: '4px',
+                                    color: '#000000',
+                                    margin: 0
+                                }}>DISCOUNT</p>
+                                <p style={{
+                                    fontSize: '20px',
+                                    fontWeight: 'bold',
+                                    color: '#000000',
+                                    margin: 0
+                                }}>₹{product.selling_price_b}</p>
                             </div>
                         </div>
                     </div>
