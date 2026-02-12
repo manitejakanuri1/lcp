@@ -62,7 +62,8 @@
       "Bash(vercel:*)",
       "Bash(node setup-founder.js:*)",
       "Bash(vercel ls:*)",
-      "Bash(vercel --prod --yes:*)"
+      "Bash(vercel --prod --yes:*)",
+      "Bash(vercel inspect:*)"
     ]
   }
 }

@@ -58,7 +58,8 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                 // Create download link
                 const url = URL.createObjectURL(blob)
                 const link = document.createElement('a')
-                link.download = `${product.sku}-barcode-label.png`
+                const timestamp = new Date().getTime()
+                link.download = `${product.sku}-barcode-${timestamp}.png`
                 link.href = url
 
                 // Trigger download
