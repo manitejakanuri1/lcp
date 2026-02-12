@@ -10,28 +10,142 @@ interface ProductCodeModalProps {
 
 export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalProps) {
     const handlePrint = () => {
-        window.print()
+        const printContent = document.getElementById('barcode-print-content')
+        if (!printContent) return
+
+        const printWindow = window.open('', '_blank')
+        if (!printWindow) return
+
+        printWindow.document.write(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>Print Barcode - ${product.sku}</title>
+                <style>
+                    @media print {
+                        @page { margin: 0; }
+                        body { margin: 1cm; }
+                    }
+                    body {
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        min-height: 100vh;
+                        margin: 0;
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    }
+                    .barcode-label {
+                        background: white;
+                        padding: 24px;
+                        border-radius: 12px;
+                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                        border: 2px solid #d1d5db;
+                        width: 320px;
+                    }
+                    .shop-name {
+                        text-align: center;
+                        margin-bottom: 12px;
+                        padding-bottom: 12px;
+                        border-bottom: 2px solid #d1d5db;
+                    }
+                    .shop-name h2 {
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: #000;
+                        margin: 0;
+                    }
+                    .barcode-container {
+                        display: flex;
+                        justify-content: center;
+                        margin-bottom: 16px;
+                    }
+                    .prices {
+                        display: grid;
+                        grid-template-columns: 1fr 1fr;
+                        gap: 8px;
+                    }
+                    .price-box {
+                        padding: 12px;
+                        border-radius: 8px;
+                        text-align: center;
+                        color: white;
+                    }
+                    .price-box.mrp {
+                        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                    }
+                    .price-box.discount {
+                        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                    }
+                    .price-label {
+                        font-size: 10px;
+                        font-weight: 600;
+                        text-transform: uppercase;
+                        margin-bottom: 4px;
+                    }
+                    .price-value {
+                        font-size: 20px;
+                        font-weight: bold;
+                    }
+                </style>
+            </head>
+            <body>
+                ${printContent.innerHTML}
+                <script>
+                    window.onload = () => {
+                        setTimeout(() => {
+                            window.print();
+                            window.close();
+                        }, 250);
+                    };
+                </script>
+            </body>
+            </html>
+        `)
+        printWindow.document.close()
     }
 
     const handleDownload = () => {
-        const svg = document.querySelector('svg.barcode-svg') as SVGElement
-        if (!svg) return
+        const element = document.getElementById('barcode-print-content')
+        if (!element) return
 
-        const svgData = new XMLSerializer().serializeToString(svg)
-        const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
-        const dataUrl = URL.createObjectURL(svgBlob)
+        // Create a canvas to convert HTML to image
+        import('html2canvas').then((html2canvas) => {
+            html2canvas.default(element, {
+                backgroundColor: '#ffffff',
+                scale: 2,
+                logging: false,
+            }).then((canvas) => {
+                canvas.toBlob((blob) => {
+                    if (!blob) return
+                    const url = URL.createObjectURL(blob)
+                    const link = document.createElement('a')
+                    link.download = `${product.sku}-barcode.png`
+                    link.href = url
+                    link.click()
+                    URL.revokeObjectURL(url)
+                })
+            })
+        }).catch(() => {
+            // Fallback: just download the SVG
+            const svg = element.querySelector('svg')
+            if (!svg) return
 
-        const link = document.createElement('a')
-        link.download = `${product.sku}-barcode.svg`
-        link.href = dataUrl
-        link.click()
+            const svgData = new XMLSerializer().serializeToString(svg)
+            const svgBlob = new Blob([svgData], { type: 'image/svg+xml;charset=utf-8' })
+            const url = URL.createObjectURL(svgBlob)
+            const link = document.createElement('a')
+            link.download = `${product.sku}-barcode.svg`
+            link.href = url
+            link.click()
+            URL.revokeObjectURL(url)
+        })
     }
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="Product Barcode">
             <div className="space-y-6">
                 {/* Product Info */}
-                <div className="bg-[var(--color-surface)] rounded-lg p-4">
+                <div className="bg-[var(--color-surface)] rounded-lg p-4 print:hidden">
                     <h3 className="font-semibold text-[var(--color-text)] mb-2">
                         {product.saree_name}
                     </h3>
@@ -55,21 +169,42 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     </div>
                 </div>
 
-                {/* Barcode Display */}
-                <div className="bg-white rounded-lg p-6 print:p-0">
-                    <div className="flex flex-col items-center">
-                        <h4 className="text-sm font-medium text-gray-700 mb-4 print:hidden">
-                            Barcode (Code128)
-                        </h4>
-                        <div className="bg-white p-6 rounded-lg border-2 border-gray-200">
+                {/* Printable Barcode Label */}
+                <div className="flex justify-center">
+                    <div
+                        id="barcode-print-content"
+                        className="barcode-label bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300"
+                        style={{ width: '320px' }}
+                    >
+                        {/* Shop Name */}
+                        <div className="shop-name text-center mb-3 pb-3 border-b-2 border-gray-300">
+                            <h2 className="text-xl font-bold" style={{ color: '#000' }}>
+                                Lakshmi Saree Mandir
+                            </h2>
+                        </div>
+
+                        {/* Barcode */}
+                        <div className="barcode-container flex justify-center mb-4">
                             <BarcodeDisplay
                                 value={product.sku}
                                 width={2}
-                                height={80}
+                                height={60}
                                 format="CODE128"
                                 displayValue={true}
-                                fontSize={18}
+                                fontSize={16}
                             />
+                        </div>
+
+                        {/* Price Boxes */}
+                        <div className="prices grid grid-cols-2 gap-2">
+                            <div className="price-box mrp bg-gradient-to-r from-green-500 to-green-600 text-white px-3 py-2 rounded-lg text-center">
+                                <p className="price-label text-xs font-semibold">MRP</p>
+                                <p className="price-value text-xl font-bold">₹{product.selling_price_a}</p>
+                            </div>
+                            <div className="price-box discount bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg text-center">
+                                <p className="price-label text-xs font-semibold">DISCOUNT</p>
+                                <p className="price-value text-xl font-bold">₹{product.selling_price_b}</p>
+                            </div>
                         </div>
                     </div>
                 </div>

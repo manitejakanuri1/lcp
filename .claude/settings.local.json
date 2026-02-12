@@ -60,7 +60,8 @@
       "Bash(vercel --version:*)",
       "Bash(vercel login:*)",
       "Bash(vercel:*)",
-      "Bash(node setup-founder.js:*)"
+      "Bash(node setup-founder.js:*)",
+      "Bash(vercel ls:*)"
     ]
   }
 }
