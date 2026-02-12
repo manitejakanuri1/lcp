@@ -23,8 +23,11 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                 <title>Print Barcode - ${product.sku}</title>
                 <style>
                     @media print {
-                        @page { margin: 0; }
-                        body { margin: 1cm; }
+                        @page {
+                            margin: 0;
+                            size: landscape;
+                        }
+                        body { margin: 0.5cm; }
                     }
                     body {
                         display: flex;
@@ -36,39 +39,51 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     }
                     .barcode-label {
                         background: white;
-                        padding: 24px;
-                        border-radius: 12px;
-                        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+                        padding: 16px 24px;
+                        border-radius: 8px;
+                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
                         border: 2px solid #d1d5db;
-                        width: 320px;
+                        display: flex;
+                        align-items: center;
+                        gap: 20px;
+                        max-width: 600px;
                     }
                     .shop-name {
-                        text-align: center;
-                        margin-bottom: 12px;
-                        padding-bottom: 12px;
-                        border-bottom: 2px solid #d1d5db;
+                        flex-shrink: 0;
+                        text-align: left;
+                        padding-right: 20px;
+                        border-right: 2px solid #d1d5db;
                     }
                     .shop-name h2 {
-                        font-size: 20px;
+                        font-size: 18px;
                         font-weight: bold;
                         color: #000;
                         margin: 0;
+                        white-space: nowrap;
+                    }
+                    .barcode-section {
+                        flex: 1;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
                     }
                     .barcode-container {
                         display: flex;
                         justify-content: center;
-                        margin-bottom: 16px;
+                        margin-bottom: 8px;
                     }
                     .prices {
-                        display: grid;
-                        grid-template-columns: 1fr 1fr;
-                        gap: 8px;
+                        display: flex;
+                        gap: 12px;
+                        width: 100%;
+                        justify-content: center;
                     }
                     .price-box {
-                        padding: 12px;
-                        border-radius: 8px;
+                        padding: 8px 16px;
+                        border-radius: 6px;
                         text-align: center;
                         color: white;
+                        min-width: 100px;
                     }
                     .price-box.mrp {
                         background: linear-gradient(135deg, #10b981 0%, #059669 100%);
@@ -77,19 +92,38 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                         background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
                     }
                     .price-label {
-                        font-size: 10px;
+                        font-size: 9px;
                         font-weight: 600;
                         text-transform: uppercase;
-                        margin-bottom: 4px;
+                        margin-bottom: 2px;
                     }
                     .price-value {
-                        font-size: 20px;
+                        font-size: 18px;
                         font-weight: bold;
                     }
                 </style>
             </head>
             <body>
-                ${printContent.innerHTML}
+                <div class="barcode-label">
+                    <div class="shop-name">
+                        <h2>Lakshmi Saree Mandir</h2>
+                    </div>
+                    <div class="barcode-section">
+                        <div class="barcode-container">
+                            ${printContent.querySelector('.barcode-container')?.innerHTML || ''}
+                        </div>
+                        <div class="prices">
+                            <div class="price-box mrp">
+                                <p class="price-label">MRP</p>
+                                <p class="price-value">₹${product.selling_price_a}</p>
+                            </div>
+                            <div class="price-box discount">
+                                <p class="price-label">DISCOUNT</p>
+                                <p class="price-value">₹${product.selling_price_b}</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <script>
                     window.onload = () => {
                         setTimeout(() => {
