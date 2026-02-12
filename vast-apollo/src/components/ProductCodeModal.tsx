@@ -78,13 +78,15 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                     }
                     .price-label {
                         font-size: 10px;
-                        font-weight: 600;
+                        font-weight: 700;
                         text-transform: uppercase;
                         margin-bottom: 4px;
+                        color: #000;
                     }
                     .price-value {
                         font-size: 20px;
                         font-weight: bold;
+                        color: #000;
                     }
                 </style>
             </head>
