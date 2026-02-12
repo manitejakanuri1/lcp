@@ -18,6 +18,9 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
         }
 
         try {
+            // Yield to browser to show any UI updates
+            await new Promise(resolve => setTimeout(resolve, 50))
+
             const html2canvasModule = await import('html2canvas')
             const html2canvas = html2canvasModule.default || html2canvasModule
 

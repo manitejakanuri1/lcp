@@ -17,6 +17,7 @@ interface BulkBarcodeModalProps {
 export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModalProps) {
     const [selectedItems, setSelectedItems] = useState<BarcodeItem[]>([])
     const [searchTerm, setSearchTerm] = useState('')
+    const [isGenerating, setIsGenerating] = useState(false)
 
     const addItem = (product: Product) => {
         const existing = selectedItems.find(item => item.product.id === product.id)
@@ -54,7 +55,12 @@ export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModal
             return
         }
 
+        setIsGenerating(true)
+
         try {
+            // Use setTimeout to yield to the browser and show loading state
+            await new Promise(resolve => setTimeout(resolve, 50))
+
             const html2canvasModule = await import('html2canvas')
             const html2canvas = html2canvasModule.default || html2canvasModule
 
@@ -72,6 +78,7 @@ export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModal
             canvas.toBlob((blob) => {
                 if (!blob) {
                     alert('Failed to create image. Please try again.')
+                    setIsGenerating(false)
                     return
                 }
 
@@ -87,10 +94,12 @@ export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModal
 
                 setTimeout(() => URL.revokeObjectURL(url), 1000)
                 console.log('Download successful')
+                setIsGenerating(false)
             }, 'image/png', 1.0)
         } catch (error) {
             console.error('Download failed:', error)
             alert(`Failed to download: ${error instanceof Error ? error.message : 'Unknown error'}`)
+            setIsGenerating(false)
         }
     }
 
@@ -304,9 +313,10 @@ export function BulkBarcodeModal({ isOpen, onClose, products }: BulkBarcodeModal
                         variant="primary"
                         onClick={handleDownload}
                         fullWidth
-                        disabled={totalLabels === 0}
+                        disabled={totalLabels === 0 || isGenerating}
+                        loading={isGenerating}
                     >
-                        📄 Download Barcode Sheet
+                        {isGenerating ? '⏳ Generating...' : '📄 Download Barcode Sheet'}
                     </Button>
                     <Button
                         variant="ghost"
