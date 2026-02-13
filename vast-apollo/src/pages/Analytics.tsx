@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Input, Button, Modal } from '../components/ui'
-import { supabase } from '../lib/supabase'
-import { billsApi } from '../lib/api'
-import type { AnalyticsSummary, DailySales, Bill } from '../types/database'
+import { billsApi, analyticsApi } from '../lib/api'
+import type { AnalyticsSummary, DailySale, Bill } from '../lib/api'
 import {
     AreaChart,
     Area,
@@ -18,7 +17,7 @@ import {
 
 export function Analytics() {
     const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
-    const [dailySales, setDailySales] = useState<DailySales[]>([])
+    const [dailySales, setDailySales] = useState<DailySale[]>([])
     const [recentBills, setRecentBills] = useState<Bill[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const [dateRange, setDateRange] = useState({
@@ -35,27 +34,19 @@ export function Analytics() {
         setIsLoading(true)
         try {
             // Fetch analytics summary
-            const { data: summaryData } = await supabase.rpc('get_analytics_summary', {
-                start_date: dateRange.start,
-                end_date: dateRange.end
-            } as never) as { data: AnalyticsSummary[] | null }
+            const summaryData = await analyticsApi.getSummary(dateRange.start, dateRange.end)
             if (summaryData && summaryData.length > 0) {
                 setSummary(summaryData[0])
             }
 
             // Fetch daily sales
-            const { data: salesData } = await supabase.rpc('get_daily_sales', { days_back: 30 } as never) as { data: DailySales[] | null }
+            const salesData = await analyticsApi.getDailySales(30)
             if (salesData) {
                 setDailySales([...salesData].reverse())
             }
 
             // Fetch recent bills
-            const { data: billsData } = await supabase
-                .from('bills')
-                .select('*')
-                .order('created_at', { ascending: false })
-                .limit(50)
-
+            const billsData = await billsApi.getAll()
             if (billsData) {
                 setRecentBills(billsData)
             }
