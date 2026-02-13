@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.27.3",
     "@supabase/supabase-js": "^2.93.3",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
@@ -20,12 +21,14 @@
     "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",
     "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.0",
     "react-barcode": "^1.6.1",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.0",
     "recharts": "^3.7.0",
+    "sharp": "^0.33.5",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

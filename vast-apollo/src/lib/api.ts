@@ -263,6 +263,64 @@ export const usersApi = {
     },
 };
 
+// ================== BILL IMAGE UPLOAD API ==================
+
+export interface BillExtractedData {
+    vendor: {
+        company_name: string;
+        gst_number: string;
+        bill_number: string;
+        bill_date: string;
+    };
+    transaction: {
+        is_local: boolean;
+    };
+    items: Array<{
+        saree_type: string;
+        material: string;
+        quantity: number;
+        cost_price: number;
+        hsn_code: string;
+        color: string;
+        cost_code: string;
+        selling_price_a: number;
+        selling_price_b: number;
+        selling_price_c: number;
+        rack_location: string;
+    }>;
+}
+
+export interface BillUploadResponse {
+    success: boolean;
+    storage_path: string;
+    extracted_data: BillExtractedData;
+    message: string;
+}
+
+export const inventoryApi = {
+    uploadBill: async (file: File): Promise<BillUploadResponse> => {
+        const formData = new FormData();
+        formData.append('billImage', file);
+
+        const response = await fetch(`${API_BASE}/inventory/upload-bill`, {
+            method: 'POST',
+            body: formData, // Don't set Content-Type, browser will set it with boundary
+            credentials: 'include',
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Failed to upload bill');
+        }
+
+        return response.json();
+    },
+
+    getBillImageUrl: async (path: string): Promise<{ url: string }> => {
+        return request<{ url: string }>(`/inventory/bill-image/${path}`);
+    }
+};
+
 // Health check
 export const healthCheck = async () => {
     return request<{ status: string; timestamp: string }>('/health');

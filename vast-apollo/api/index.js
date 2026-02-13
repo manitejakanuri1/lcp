@@ -4,6 +4,9 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
+import multer from 'multer';
+import Anthropic from '@anthropic-ai/sdk';
+import sharp from 'sharp';
 
 // Load environment variables
 dotenv.config();
@@ -16,6 +19,27 @@ const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_KEY
 );
+
+// Initialize Anthropic client for bill image extraction
+const anthropic = new Anthropic({
+    apiKey: process.env.ANTHROPIC_API_KEY
+});
+
+// Configure multer for memory storage (file upload)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Invalid file type. Only JPG, PNG, and PDF are allowed.'));
+        }
+    }
+});
 
 // Security middleware
 app.use(helmet());
@@ -600,6 +624,185 @@ app.put('/api/users/:id/role', authenticateToken, async (req, res) => {
         res.json(data);
     } catch (err) {
         res.status(500).json({ error: 'Failed to update user role' });
+    }
+});
+
+// ================== BILL IMAGE UPLOAD & EXTRACTION ==================
+
+app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const fileName = `bill_${Date.now()}_${req.file.originalname}`;
+        let imageBuffer = req.file.buffer;
+        let mimeType = req.file.mimetype;
+
+        // Optimize image if it's not a PDF
+        if (mimeType.startsWith('image/')) {
+            imageBuffer = await sharp(req.file.buffer)
+                .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
+                .jpeg({ quality: 85 })
+                .toBuffer();
+            mimeType = 'image/jpeg';
+        }
+
+        // 1. Upload to Supabase Storage
+        const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('bill-images')
+            .upload(fileName, imageBuffer, {
+                contentType: mimeType,
+                cacheControl: '3600',
+            });
+
+        if (uploadError) {
+            console.error('Supabase storage error:', uploadError);
+            return res.status(500).json({ error: 'Failed to upload image to storage' });
+        }
+
+        // 2. Convert image to base64 for Claude Vision API
+        const base64Image = imageBuffer.toString('base64');
+        const mediaType = mimeType === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
+
+        // 3. Call Claude Vision API with structured prompt
+        const response = await anthropic.messages.create({
+            model: 'claude-3-5-sonnet-20241022',
+            max_tokens: 2048,
+            messages: [{
+                role: 'user',
+                content: [
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: mediaType,
+                            data: base64Image,
+                        },
+                    },
+                    {
+                        type: 'text',
+                        text: `You are an expert at extracting data from Indian GST invoices and purchase bills for a saree inventory system.
+
+Analyze this bill/invoice image and extract the following information in JSON format:
+
+{
+  "vendor": {
+    "company_name": "string",
+    "gst_number": "string (15 chars, format: ##XXXXX####X#X#)",
+    "bill_number": "string",
+    "bill_date": "YYYY-MM-DD"
+  },
+  "transaction": {
+    "is_local": boolean (true if CGST+SGST, false if IGST)
+  },
+  "items": [
+    {
+      "saree_type": "string (e.g., Silk, Cotton, Georgette)",
+      "material": "string",
+      "quantity": number,
+      "cost_price": number (per piece excluding GST),
+      "hsn_code": "string (6 or 8 digits)"
+    }
+  ]
+}
+
+Important extraction rules:
+1. company_name: Extract full legal company name from header
+2. gst_number: Must be exactly 15 characters, format ##XXXXX####X#X# (where # is digit, X is letter)
+3. bill_date: Convert any date format to YYYY-MM-DD
+4. is_local: Check if bill shows CGST+SGST (local/intrastate) or IGST (interstate)
+5. cost_price: Extract per-piece price BEFORE tax (if total is given, divide by quantity)
+6. quantity: Number of pieces for each line item
+7. If multiple items, create separate entries in items array
+8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
+
+If any field is unclear or missing, use these defaults:
+- material: "Not specified"
+- hsn_code: "5407"
+- quantity: 1
+
+Return ONLY valid JSON, no markdown or explanations.`
+                    }
+                ]
+            }]
+        });
+
+        // 4. Parse Claude's response
+        const extractedText = response.content[0].text;
+        let extractedData;
+
+        try {
+            // Try to parse JSON from response
+            const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+            if (jsonMatch) {
+                extractedData = JSON.parse(jsonMatch[0]);
+            } else {
+                throw new Error('No JSON found in response');
+            }
+        } catch (parseError) {
+            console.error('Failed to parse Claude response:', extractedText);
+            return res.status(500).json({
+                error: 'Failed to extract structured data from image',
+                raw_response: extractedText
+            });
+        }
+
+        // 5. Validate and transform extracted data
+        const validatedData = {
+            vendor: {
+                company_name: extractedData.vendor?.company_name || '',
+                gst_number: extractedData.vendor?.gst_number || '',
+                bill_number: extractedData.vendor?.bill_number || '',
+                bill_date: extractedData.vendor?.bill_date || new Date().toISOString().split('T')[0]
+            },
+            transaction: {
+                is_local: extractedData.transaction?.is_local ?? true
+            },
+            items: (extractedData.items || []).map((item) => ({
+                saree_type: item.saree_type || 'Not specified',
+                material: item.material || 'Not specified',
+                quantity: parseInt(item.quantity) || 1,
+                cost_price: parseFloat(item.cost_price) || 0,
+                hsn_code: item.hsn_code || '5407',
+                // Auto-generate placeholders for required fields
+                color: '',
+                cost_code: '',
+                selling_price_a: 0,
+                selling_price_b: 0,
+                selling_price_c: 0,
+                rack_location: ''
+            }))
+        };
+
+        // 6. Return extracted data with storage reference
+        res.json({
+            success: true,
+            storage_path: uploadData.path,
+            extracted_data: validatedData,
+            message: 'Bill data extracted successfully'
+        });
+
+    } catch (error) {
+        console.error('Bill upload error:', error);
+        res.status(500).json({
+            error: error.message || 'Failed to process bill image',
+            details: error.toString()
+        });
+    }
+});
+
+// Get uploaded bill image URL (for preview)
+app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase.storage
+            .from('bill-images')
+            .createSignedUrl(req.params.path, 3600); // 1 hour expiry
+
+        if (error) throw error;
+        res.json({ url: data.signedUrl });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to get image URL' });
     }
 });
 

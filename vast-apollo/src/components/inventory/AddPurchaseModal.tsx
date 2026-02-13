@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { Button, Input, Modal } from '../ui'
-import { vendorBillsApi, type Product } from '../../lib/api'
+import { vendorBillsApi, type Product, type BillExtractedData } from '../../lib/api'
 import { v4 as uuidv4 } from 'uuid'
+import { BillImageUpload } from './BillImageUpload'
 
 interface AddPurchaseModalProps {
     isOpen: boolean
@@ -37,6 +38,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     // GST fields
     const [vendorGstNumber, setVendorGstNumber] = useState('')
     const [isLocalTransaction, setIsLocalTransaction] = useState(true)
+
+    // Bill upload section
+    const [showUploadSection, setShowUploadSection] = useState(true)
 
     // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + (item.cost_price * item.quantity), 0)
@@ -85,6 +89,37 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const removeItem = (index: number) => {
         if (items.length === 1) return
         setItems(items.filter((_, i) => i !== index))
+    }
+
+    const handleBillDataExtracted = (extractedData: BillExtractedData) => {
+        // Populate vendor fields
+        setCompanyName(extractedData.vendor.company_name)
+        setBillNumber(extractedData.vendor.bill_number)
+        setBillDate(extractedData.vendor.bill_date)
+        setVendorGstNumber(extractedData.vendor.gst_number)
+        setIsLocalTransaction(extractedData.transaction.is_local)
+
+        // Populate items
+        if (extractedData.items.length > 0) {
+            setItems(extractedData.items.map(item => ({
+                sku: '', // Will be auto-generated on save
+                cost_price: item.cost_price,
+                cost_code: item.cost_code || '',
+                selling_price_a: item.selling_price_a || 0,
+                selling_price_b: item.selling_price_b || 0,
+                selling_price_c: item.selling_price_c || 0,
+                saree_name: item.saree_type,
+                saree_type: item.saree_type,
+                material: item.material,
+                color: item.color || '',
+                hsn_code: item.hsn_code || '',
+                quantity: item.quantity,
+                rack_location: item.rack_location || ''
+            })))
+        }
+
+        // Hide upload section after successful extraction
+        setShowUploadSection(false)
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
@@ -138,6 +173,48 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     return (
         <Modal isOpen={isOpen} onClose={onClose} title="📥 Stock In (Receive Purchase)" size="lg">
             <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Bill Image Upload Section */}
+                {showUploadSection && (
+                    <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-4 rounded-xl border border-indigo-500/30">
+                        <div className="flex items-start justify-between mb-3">
+                            <div>
+                                <h3 className="font-semibold text-[var(--color-text)] flex items-center gap-2">
+                                    <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    Quick Fill from Bill Image
+                                </h3>
+                                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                                    Upload a photo of your vendor bill to auto-fill details below
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowUploadSection(false)}
+                                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <BillImageUpload onDataExtracted={handleBillDataExtracted} />
+                    </div>
+                )}
+
+                {!showUploadSection && (
+                    <button
+                        type="button"
+                        onClick={() => setShowUploadSection(true)}
+                        className="w-full bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-3 text-sm text-indigo-500 font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Upload Bill Image to Auto-Fill
+                    </button>
+                )}
+
                 {/* Bill Header */}
                 <div className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)]">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
