@@ -326,15 +326,22 @@ export const inventoryApi = {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        const response = await fetch(`${API_BASE}/inventory/upload-bill`, {
+        const uploadUrl = `${API_BASE}/inventory/upload-bill`;
+        console.log('[API] Uploading to:', uploadUrl);
+        console.log('[API] Has auth token:', !!token);
+
+        const response = await fetch(uploadUrl, {
             method: 'POST',
             body: formData, // Don't set Content-Type, browser will set it with boundary
             credentials: 'include',
             headers,
         });
 
+        console.log('[API] Response status:', response.status, response.statusText);
+
         if (!response.ok) {
             const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            console.error('[API] Error response:', error);
             throw new Error(error.error || 'Failed to upload bill');
         }
 

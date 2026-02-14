@@ -41,7 +41,13 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
 
         try {
             const { inventoryApi } = await import('../../lib/api');
+
+            console.log('[BillUpload] Starting upload...');
+            console.log('[BillUpload] File:', file.name, file.type, file.size);
+
             const response = await inventoryApi.uploadBill(file);
+
+            console.log('[BillUpload] Response received:', response);
 
             if (response.success) {
                 onDataExtracted(response.extracted_data);
@@ -50,12 +56,23 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                 setError('Failed to extract data from bill image');
             }
         } catch (err) {
-            console.error('Upload error:', err);
+            console.error('[BillUpload] Upload error:', err);
+
+            // Log more details about the error
+            if (err instanceof TypeError && err.message.includes('fetch')) {
+                console.error('[BillUpload] Network fetch failed - possible CORS or connection issue');
+            }
 
             // Provide detailed error messages
             let errorMessage = 'Failed to upload and process bill';
 
             if (err instanceof Error) {
+                console.error('[BillUpload] Error details:', {
+                    name: err.name,
+                    message: err.message,
+                    stack: err.stack
+                });
+
                 if (err.message.includes('Access denied') || err.message.includes('Unauthorized')) {
                     errorMessage = '🔒 Authentication error. Please log out and log in again.';
                 } else if (err.message.includes('Failed to upload image to storage')) {
@@ -64,8 +81,8 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                     errorMessage = '🤖 AI extraction failed. Try a clearer image or different bill.';
                 } else if (err.message.includes('GOOGLE_GEMINI_API_KEY') || err.message.includes('Gemini API')) {
                     errorMessage = '🔑 API key missing. Contact administrator to configure Google Gemini API key.';
-                } else if (err.message.includes('Network') || err.message.includes('fetch')) {
-                    errorMessage = '🌐 Network error. Check your internet connection.';
+                } else if (err.message.includes('Network') || err.message.includes('fetch') || err.name === 'TypeError') {
+                    errorMessage = `🌐 Network error. API endpoint may be unavailable. Error: ${err.message}`;
                 } else {
                     errorMessage = `❌ ${err.message}`;
                 }
