@@ -41,7 +41,7 @@ export interface Database {
                     purchase_date: string
                     cost_price: number
                     selling_price: number
-                    saree_type: string
+                    saree_type: string | null
                     material: string
                     color: string | null
                     rack_location: string | null
@@ -60,7 +60,7 @@ export interface Database {
                     purchase_date: string
                     cost_price: number
                     selling_price: number
-                    saree_type: string
+                    saree_type: string | null
                     material: string
                     color?: string | null
                     rack_location?: string | null
@@ -228,7 +228,7 @@ export type BillItemInsert = Database['public']['Tables']['bill_items']['Insert'
 export interface ProductSalesman {
     id: string
     sku: string
-    saree_type: string
+    saree_name: string | null
     material: string
     color: string | null
     selling_price: number

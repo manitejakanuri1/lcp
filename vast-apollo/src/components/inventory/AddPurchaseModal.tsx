@@ -18,9 +18,7 @@ const INITIAL_PRODUCT: ProductEntry = {
     cost_code: '',
     selling_price_a: 0,
     selling_price_b: 0,
-    selling_price_c: 0,
     saree_name: '',
-    saree_type: '',
     material: '',
     color: '',
     hsn_code: '',
@@ -107,9 +105,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 cost_code: item.cost_code || '',
                 selling_price_a: item.selling_price_a || 0,
                 selling_price_b: item.selling_price_b || 0,
-                selling_price_c: item.selling_price_c || 0,
-                saree_name: item.saree_name || item.saree_type,
-                saree_type: item.saree_type,
+                saree_name: item.saree_name || 'Unnamed',
                 material: item.material,
                 color: item.color || '',
                 hsn_code: item.hsn_code || '',
@@ -134,10 +130,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 vendor_name: companyName, // Inherit from bill
                 purchase_date: billDate,
                 status: 'available' as const,
-                saree_name: item.saree_name || item.saree_type, // Use extracted full name
+                saree_name: item.saree_name || 'Unnamed',
                 selling_price: item.selling_price_a, // Backward compatibility
                 selling_price_b: item.selling_price_b || item.selling_price_a, // Default to MRP
-                selling_price_c: item.selling_price_c || item.selling_price_a,  // Default to MRP
                 cost_code: item.cost_code || null // Ensure cost_code is explicitly passed
             }))
 
@@ -300,13 +295,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         placeholder="Full name"
                                     />
                                     <Input
-                                        label="Saree Type"
-                                        value={item.saree_type}
-                                        onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
-                                        required
-                                        placeholder="Type"
-                                    />
-                                    <Input
                                         label="Material"
                                         value={item.material}
                                         onChange={(e) => handleItemChange(index, 'material', e.target.value)}
@@ -342,12 +330,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         type="number"
                                         value={item.selling_price_b.toString()}
                                         onChange={(e) => handleItemChange(index, 'selling_price_b', parseFloat(e.target.value) || 0)}
-                                    />
-                                    <Input
-                                        label="Price C (₹)"
-                                        type="number"
-                                        value={item.selling_price_c.toString()}
-                                        onChange={(e) => handleItemChange(index, 'selling_price_c', parseFloat(e.target.value) || 0)}
                                     />
                                 </div>
 

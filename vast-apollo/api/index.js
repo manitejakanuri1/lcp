@@ -236,13 +236,12 @@ app.get('/api/products', async (req, res) => {
 
         if (status) query = query.eq('status', status);
         if (vendor) query = query.ilike('vendor_name', `%${vendor}%`);
-        if (type) query = query.ilike('saree_type', `%${type}%`);
         if (saree_name) query = query.ilike('saree_name', `%${saree_name}%`);
         if (color) query = query.ilike('color', `%${color}%`);
         if (minPrice) query = query.gte('selling_price_a', parseFloat(minPrice));
         if (maxPrice) query = query.lte('selling_price_a', parseFloat(maxPrice));
         if (search) {
-            query = query.or(`sku.ilike.%${search}%,saree_type.ilike.%${search}%,material.ilike.%${search}%,color.ilike.%${search}%,vendor_name.ilike.%${search}%,saree_name.ilike.%${search}%`);
+            query = query.or(`sku.ilike.%${search}%,material.ilike.%${search}%,color.ilike.%${search}%,vendor_name.ilike.%${search}%,saree_name.ilike.%${search}%`);
         }
 
         const { data, error } = await query.order('created_at', { ascending: false });
@@ -703,7 +702,6 @@ Analyze this bill/invoice image and extract the following information in JSON fo
   "items": [
     {
       "saree_name": "string (EXACT full product name/description as written on the bill line item, including design number, brand name, variant. e.g., D.NO.-2482 VASUNDRA PATTU-1, D.NO-118 KANJIVARAM SILK, FANCY GEORGETTE D-205)",
-      "saree_type": "string (general fabric/material category only e.g., Pattu, Silk, Cotton, Georgette, Chiffon, Crepe)",
       "material": "string",
       "quantity": number,
       "cost_price": number (per piece excluding GST),
@@ -723,7 +721,6 @@ Important extraction rules:
 8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
 
 9. saree_name: VERY IMPORTANT - Copy the EXACT COMPLETE product name/description text from each line item on the bill. Include ALL details: design numbers (D.NO., D.NO-), brand names, variant numbers, series names. For example if the bill says "D.NO.-2482 VASUNDRA PATTU-1", the saree_name must be "D.NO.-2482 VASUNDRA PATTU-1" - do NOT shorten or summarize it.
-10. saree_type: Extract ONLY the general fabric/material category from the name (e.g., Pattu, Silk, Cotton, Georgette)
 
 If any field is unclear or missing, use these defaults:
 - saree_name: Use the full text from the product description column on the bill
@@ -787,8 +784,7 @@ CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap
                 is_local: extractedData.transaction?.is_local ?? true
             },
             items: (extractedData.items || []).map((item) => ({
-                saree_name: item.saree_name || item.saree_type || 'Not specified',
-                saree_type: item.saree_type || 'Not specified',
+                saree_name: item.saree_name || 'Not specified',
                 material: item.material || 'Not specified',
                 quantity: parseInt(item.quantity) || 1,
                 cost_price: parseFloat(item.cost_price) || 0,
@@ -798,7 +794,6 @@ CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap
                 cost_code: '',
                 selling_price_a: 0,
                 selling_price_b: 0,
-                selling_price_c: 0,
                 rack_location: ''
             }))
         };

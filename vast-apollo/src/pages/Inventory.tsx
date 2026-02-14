@@ -32,9 +32,7 @@ export function Inventory() {
         cost_code: '',
         selling_price_a: '',
         selling_price_b: '',
-        selling_price_c: '',
         saree_name: '',
-        saree_type: '',
         material: '',
         color: '',
         quantity: '1',
@@ -76,9 +74,7 @@ export function Inventory() {
                 selling_price: parseFloat(formData.selling_price_a), // Backwards compatibility
                 selling_price_a: parseFloat(formData.selling_price_a),
                 selling_price_b: parseFloat(formData.selling_price_b),
-                selling_price_c: parseFloat(formData.selling_price_c),
                 saree_name: formData.saree_name,
-                saree_type: formData.saree_type,
                 material: formData.material,
                 color: formData.color || null,
                 quantity: parseInt(formData.quantity) || 1,
@@ -98,9 +94,7 @@ export function Inventory() {
                 cost_code: '',
                 selling_price_a: '',
                 selling_price_b: '',
-                selling_price_c: '',
                 saree_name: '',
-                saree_type: '',
                 material: '',
                 color: '',
                 quantity: '1',
@@ -117,7 +111,7 @@ export function Inventory() {
 
     const filteredProducts = products.filter((p) =>
         p.sku.toLowerCase().includes(filter.toLowerCase()) ||
-        p.saree_type.toLowerCase().includes(filter.toLowerCase()) ||
+        (p.saree_name && p.saree_name.toLowerCase().includes(filter.toLowerCase())) ||
         p.material.toLowerCase().includes(filter.toLowerCase()) ||
         (p.color && p.color.toLowerCase().includes(filter.toLowerCase()))
     )
@@ -139,9 +133,7 @@ export function Inventory() {
             cost_code: product.cost_code,
             selling_price_a: product.selling_price_a,
             selling_price_b: product.selling_price_b,
-            selling_price_c: product.selling_price_c,
             saree_name: product.saree_name,
-            saree_type: product.saree_type,
             material: product.material,
             quantity: product.quantity,
             rack_location: product.rack_location
@@ -264,7 +256,7 @@ export function Inventory() {
                                             )}
                                         </div>
                                         <p className="text-[var(--color-text)] font-medium truncate">
-                                            {product.saree_name || product.saree_type} • {product.material}
+                                            {product.saree_name || 'Unnamed'} • {product.material}
                                         </p>
                                         {product.color && (
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
@@ -353,13 +345,6 @@ export function Inventory() {
                                 required
                             />
                             <Input
-                                label="Saree Type"
-                                placeholder="e.g., Banarasi, Kanjeevaram"
-                                value={formData.saree_type}
-                                onChange={(e) => setFormData({ ...formData, saree_type: e.target.value })}
-                                required
-                            />
-                            <Input
                                 label="Material"
                                 placeholder="e.g., Silk, Cotton"
                                 value={formData.material}
@@ -395,15 +380,6 @@ export function Inventory() {
                                     label="Discount Price"
                                     value={formData.selling_price_b}
                                     onChange={(e) => setFormData({ ...formData, selling_price_b: e.target.value })}
-                                    required
-                                    min="0"
-                                    step="0.01"
-                                />
-                                <Input
-                                    type="number"
-                                    label="Price C (Special)"
-                                    value={formData.selling_price_c}
-                                    onChange={(e) => setFormData({ ...formData, selling_price_c: e.target.value })}
                                     required
                                     min="0"
                                     step="0.01"
@@ -462,11 +438,7 @@ export function Inventory() {
                             <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Saree Name</p>
-                                    <p className="font-medium">{selectedProduct.saree_name || selectedProduct.saree_type}</p>
-                                </div>
-                                <div>
-                                    <p className="text-[var(--color-text-muted)]">Type</p>
-                                    <p className="font-medium">{selectedProduct.saree_type}</p>
+                                    <p className="font-medium">{selectedProduct.saree_name || 'Unnamed'}</p>
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Material</p>
@@ -485,7 +457,7 @@ export function Inventory() {
                             {/* Selling Prices */}
                             <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
                                 <h4 className="text-sm font-semibold text-green-500 mb-3">💰 Selling Prices</h4>
-                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">MRP</p>
                                         <p className="font-medium text-green-500">{formatCurrency(selectedProduct.selling_price_a)}</p>
@@ -493,10 +465,6 @@ export function Inventory() {
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">Discount Price</p>
                                         <p className="font-medium text-blue-500">{formatCurrency(selectedProduct.selling_price_b)}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[var(--color-text-muted)]">Price C</p>
-                                        <p className="font-medium text-purple-500">{formatCurrency(selectedProduct.selling_price_c)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -572,11 +540,6 @@ export function Inventory() {
                                     onChange={(e) => setEditFormData({ ...editFormData, saree_name: e.target.value })}
                                 />
                                 <Input
-                                    label="Saree Type"
-                                    value={editFormData.saree_type || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, saree_type: e.target.value })}
-                                />
-                                <Input
                                     label="Material"
                                     value={editFormData.material || ''}
                                     onChange={(e) => setEditFormData({ ...editFormData, material: e.target.value })}
@@ -603,12 +566,6 @@ export function Inventory() {
                                     label="Discount Price (₹)"
                                     value={editFormData.selling_price_b?.toString() || ''}
                                     onChange={(e) => setEditFormData({ ...editFormData, selling_price_b: parseFloat(e.target.value) })}
-                                />
-                                <Input
-                                    type="number"
-                                    label="Price C (₹)"
-                                    value={editFormData.selling_price_c?.toString() || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, selling_price_c: parseFloat(e.target.value) })}
                                 />
                                 <Input
                                     type="number"

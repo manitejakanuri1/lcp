@@ -195,7 +195,7 @@ export function POS() {
         const itemsHtml = items.map((item, index) => `
             <tr>
                 <td style="border: 1px solid #333; padding: 8px; text-align: center;">${index + 1}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.saree_name || item.product.saree_type}</td>
+                <td style="border: 1px solid #333; padding: 8px;">${item.product.saree_name || 'Unnamed'}</td>
                 <td style="border: 1px solid #333; padding: 8px;">${item.product.sku}</td>
                 <td style="border: 1px solid #333; padding: 8px;">${item.product.material || '-'}</td>
                 <td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.quantity}</td>
@@ -429,7 +429,7 @@ export function POS() {
                                             <div>
                                                 <p className="font-mono text-sm text-indigo-500">{item.product.sku}</p>
                                                 <p className="text-[var(--color-text)]">
-                                                    {item.product.saree_name || item.product.saree_type} • {item.product.material}
+                                                    {item.product.saree_name || 'Unnamed'} • {item.product.material}
                                                 </p>
                                                 <p className="text-xs text-[var(--color-text-muted)]">
                                                     Stock: {item.product.quantity || 1} | Price: {formatCurrency(item.product.selling_price_a)}

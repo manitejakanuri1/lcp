@@ -64,9 +64,7 @@ export interface Product {
     cost_code: string | null;     // Cost code for reference
     selling_price_a: number;  // Regular price
     selling_price_b: number;  // Discount tier B
-    selling_price_c: number;  // Discount tier C
     saree_name: string;       // Name of saree
-    saree_type: string;
     material: string;
     color: string | null;
     quantity: number;         // Number of sarees
@@ -95,7 +93,6 @@ export interface ProductFilters {
     status?: string;
     search?: string;
     vendor?: string;
-    type?: string;
     saree_name?: string;
     color?: string;
     minPrice?: string;
@@ -277,7 +274,6 @@ export interface BillExtractedData {
     };
     items: Array<{
         saree_name: string;
-        saree_type: string;
         material: string;
         quantity: number;
         cost_price: number;
@@ -286,7 +282,6 @@ export interface BillExtractedData {
         cost_code: string;
         selling_price_a: number;
         selling_price_b: number;
-        selling_price_c: number;
         rack_location: string;
     }>;
 }

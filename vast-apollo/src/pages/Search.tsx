@@ -9,7 +9,6 @@ export function Search() {
     const [searchTerm, setSearchTerm] = useState('')
     const [filters, setFilters] = useState({
         vendor: '',
-        type: '',
         saree_name: '',
         minPrice: '',
         maxPrice: ''
@@ -22,7 +21,6 @@ export function Search() {
                 status: 'available',
                 search: searchTerm || undefined,
                 vendor: filters.vendor || undefined,
-                type: filters.type || undefined,
                 saree_name: filters.saree_name || undefined,
                 minPrice: filters.minPrice || undefined,
                 maxPrice: filters.maxPrice || undefined
@@ -54,7 +52,7 @@ export function Search() {
 
     const clearFilters = () => {
         setSearchTerm('')
-        setFilters({ vendor: '', type: '', saree_name: '', minPrice: '', maxPrice: '' })
+        setFilters({ vendor: '', saree_name: '', minPrice: '', maxPrice: '' })
     }
 
     return (
@@ -96,11 +94,6 @@ export function Search() {
                             placeholder="Saree Name"
                             value={filters.saree_name}
                             onChange={(e) => setFilters({ ...filters, saree_name: e.target.value })}
-                        />
-                        <Input
-                            placeholder="Type (e.g., Banarasi)"
-                            value={filters.type}
-                            onChange={(e) => setFilters({ ...filters, type: e.target.value })}
                         />
                         <Input
                             type="number"
@@ -159,7 +152,7 @@ export function Search() {
                                                 </span>
                                             </div>
                                             <p className="text-lg font-medium text-[var(--color-text)]">
-                                                {product.saree_name || product.saree_type}
+                                                {product.saree_name || 'Unnamed'}
                                             </p>
                                             <p className="text-[var(--color-text-muted)]">
                                                 {product.material}

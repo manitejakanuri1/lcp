@@ -300,10 +300,6 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                             <span className="font-mono text-[var(--color-text)]">{product.sku}</span>
                         </div>
                         <div>
-                            <span className="text-[var(--color-text-muted)]">Type:</span>{' '}
-                            <span className="text-[var(--color-text)]">{product.saree_type}</span>
-                        </div>
-                        <div>
                             <span className="text-[var(--color-text-muted)]">Material:</span>{' '}
                             <span className="text-[var(--color-text)]">{product.material}</span>
                         </div>
