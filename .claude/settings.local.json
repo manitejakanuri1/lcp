@@ -68,7 +68,8 @@
       "Bash(vercel --prod:*)",
       "Bash(vercel env add:*)",
       "Bash(echo \"y\n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\")",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: Add Anthropic API key for bill image extraction\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nchore: Add Anthropic API key for bill image extraction\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(printf:*)"
     ]
   }
 }

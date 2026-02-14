@@ -847,6 +847,24 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) =
     }
 });
 
+// Test Anthropic API configuration
+app.get('/api/test-anthropic', async (req, res) => {
+    try {
+        const hasKey = !!process.env.ANTHROPIC_API_KEY;
+        const keyLength = process.env.ANTHROPIC_API_KEY?.length || 0;
+        const keyStart = process.env.ANTHROPIC_API_KEY?.substring(0, 15) || '';
+
+        res.json({
+            configured: hasKey,
+            keyLength,
+            keyStart,
+            message: hasKey ? 'API key is configured' : 'API key is NOT configured'
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
