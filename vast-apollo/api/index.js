@@ -684,8 +684,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
         const mediaType = mimeType === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
 
         // 3. Call Gemini Vision API with structured prompt
-        // Use gemini-1.5-pro-latest (latest stable multimodal model for SDK v0.21.0)
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
         const prompt = `You are an expert at extracting data from Indian GST invoices and purchase bills for a saree inventory system.
 
