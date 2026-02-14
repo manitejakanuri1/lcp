@@ -51,7 +51,27 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
             }
         } catch (err) {
             console.error('Upload error:', err);
-            setError(err instanceof Error ? err.message : 'Failed to upload and process bill');
+
+            // Provide detailed error messages
+            let errorMessage = 'Failed to upload and process bill';
+
+            if (err instanceof Error) {
+                if (err.message.includes('Access denied') || err.message.includes('Unauthorized')) {
+                    errorMessage = '🔒 Authentication error. Please log out and log in again.';
+                } else if (err.message.includes('Failed to upload image to storage')) {
+                    errorMessage = '💾 Storage error. Check Supabase storage bucket configuration.';
+                } else if (err.message.includes('Failed to extract structured data')) {
+                    errorMessage = '🤖 AI extraction failed. Try a clearer image or different bill.';
+                } else if (err.message.includes('ANTHROPIC_API_KEY')) {
+                    errorMessage = '🔑 API key missing. Contact administrator to configure Anthropic API key.';
+                } else if (err.message.includes('Network') || err.message.includes('fetch')) {
+                    errorMessage = '🌐 Network error. Check your internet connection.';
+                } else {
+                    errorMessage = `❌ ${err.message}`;
+                }
+            }
+
+            setError(errorMessage);
         } finally {
             setIsUploading(false);
             // Reset file input

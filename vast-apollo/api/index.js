@@ -631,6 +631,13 @@ app.put('/api/users/:id/role', authenticateToken, async (req, res) => {
 
 app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
     try {
+        // Check if Anthropic API key is configured
+        if (!process.env.ANTHROPIC_API_KEY) {
+            return res.status(500).json({
+                error: 'ANTHROPIC_API_KEY not configured. Please contact administrator to set up the API key in environment variables.'
+            });
+        }
+
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
@@ -785,9 +792,30 @@ Return ONLY valid JSON, no markdown or explanations.`
 
     } catch (error) {
         console.error('Bill upload error:', error);
-        res.status(500).json({
-            error: error.message || 'Failed to process bill image',
-            details: error.toString()
+
+        // Provide specific error messages
+        let statusCode = 500;
+        let errorMessage = 'Failed to process bill image';
+
+        if (error.message && error.message.includes('ANTHROPIC_API_KEY')) {
+            statusCode = 500;
+            errorMessage = 'Anthropic API key not configured. Please contact administrator.';
+        } else if (error.status === 401 || error.message?.includes('authentication')) {
+            statusCode = 401;
+            errorMessage = 'Anthropic API authentication failed. Check API key.';
+        } else if (error.status === 429 || error.message?.includes('rate limit')) {
+            statusCode = 429;
+            errorMessage = 'API rate limit exceeded. Please try again in a few minutes.';
+        } else if (error.message?.includes('timeout')) {
+            statusCode = 504;
+            errorMessage = 'AI processing timeout. The bill image may be too complex or large.';
+        } else if (error.message) {
+            errorMessage = error.message;
+        }
+
+        res.status(statusCode).json({
+            error: errorMessage,
+            details: process.env.NODE_ENV === 'development' ? error.toString() : undefined
         });
     }
 });
