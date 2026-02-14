@@ -702,8 +702,8 @@ Analyze this bill/invoice image and extract the following information in JSON fo
   },
   "items": [
     {
-      "saree_name": "string (full descriptive name of the saree as written on the bill, e.g., Kanchipuram Silk Saree, Banarasi Georgette, Mysore Crepe Silk)",
-      "saree_type": "string (general category e.g., Silk, Cotton, Georgette, Chiffon, Crepe)",
+      "saree_name": "string (EXACT full product name/description as written on the bill line item, including design number, brand name, variant. e.g., D.NO.-2482 VASUNDRA PATTU-1, D.NO-118 KANJIVARAM SILK, FANCY GEORGETTE D-205)",
+      "saree_type": "string (general fabric/material category only e.g., Pattu, Silk, Cotton, Georgette, Chiffon, Crepe)",
       "material": "string",
       "quantity": number,
       "cost_price": number (per piece excluding GST),
@@ -722,11 +722,11 @@ Important extraction rules:
 7. If multiple items, create separate entries in items array
 8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
 
-9. saree_name: Extract the FULL product name/description as it appears on the bill. Include regional origin, weave type, fabric details etc. (e.g., "Kanchipuram Silk Saree", "Banarasi Brocade", "Chanderi Cotton Silk")
-10. saree_type: Extract just the general fabric/material category (e.g., Silk, Cotton, Georgette)
+9. saree_name: VERY IMPORTANT - Copy the EXACT COMPLETE product name/description text from each line item on the bill. Include ALL details: design numbers (D.NO., D.NO-), brand names, variant numbers, series names. For example if the bill says "D.NO.-2482 VASUNDRA PATTU-1", the saree_name must be "D.NO.-2482 VASUNDRA PATTU-1" - do NOT shorten or summarize it.
+10. saree_type: Extract ONLY the general fabric/material category from the name (e.g., Pattu, Silk, Cotton, Georgette)
 
 If any field is unclear or missing, use these defaults:
-- saree_name: Use saree_type + " Saree" (e.g., "Silk Saree")
+- saree_name: Use the full text from the product description column on the bill
 - material: "Not specified"
 - hsn_code: "5407"
 - quantity: 1
