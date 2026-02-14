@@ -702,7 +702,8 @@ Analyze this bill/invoice image and extract the following information in JSON fo
   },
   "items": [
     {
-      "saree_type": "string (e.g., Silk, Cotton, Georgette)",
+      "saree_name": "string (full descriptive name of the saree as written on the bill, e.g., Kanchipuram Silk Saree, Banarasi Georgette, Mysore Crepe Silk)",
+      "saree_type": "string (general category e.g., Silk, Cotton, Georgette, Chiffon, Crepe)",
       "material": "string",
       "quantity": number,
       "cost_price": number (per piece excluding GST),
@@ -721,7 +722,11 @@ Important extraction rules:
 7. If multiple items, create separate entries in items array
 8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
 
+9. saree_name: Extract the FULL product name/description as it appears on the bill. Include regional origin, weave type, fabric details etc. (e.g., "Kanchipuram Silk Saree", "Banarasi Brocade", "Chanderi Cotton Silk")
+10. saree_type: Extract just the general fabric/material category (e.g., Silk, Cotton, Georgette)
+
 If any field is unclear or missing, use these defaults:
+- saree_name: Use saree_type + " Saree" (e.g., "Silk Saree")
 - material: "Not specified"
 - hsn_code: "5407"
 - quantity: 1

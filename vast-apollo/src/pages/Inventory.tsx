@@ -264,7 +264,7 @@ export function Inventory() {
                                             )}
                                         </div>
                                         <p className="text-[var(--color-text)] font-medium truncate">
-                                            {product.saree_type} • {product.material}
+                                            {product.saree_name || product.saree_type} • {product.material}
                                         </p>
                                         {product.color && (
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
@@ -460,6 +460,10 @@ export function Inventory() {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 text-sm">
+                                <div>
+                                    <p className="text-[var(--color-text-muted)]">Saree Name</p>
+                                    <p className="font-medium">{selectedProduct.saree_name || selectedProduct.saree_type}</p>
+                                </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Type</p>
                                     <p className="font-medium">{selectedProduct.saree_type}</p>

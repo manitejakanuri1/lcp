@@ -429,7 +429,7 @@ export function POS() {
                                             <div>
                                                 <p className="font-mono text-sm text-indigo-500">{item.product.sku}</p>
                                                 <p className="text-[var(--color-text)]">
-                                                    {item.product.saree_type} • {item.product.material}
+                                                    {item.product.saree_name || item.product.saree_type} • {item.product.material}
                                                 </p>
                                                 <p className="text-xs text-[var(--color-text-muted)]">
                                                     Stock: {item.product.quantity || 1} | Price: {formatCurrency(item.product.selling_price_a)}

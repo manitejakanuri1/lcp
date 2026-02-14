@@ -276,6 +276,7 @@ export interface BillExtractedData {
         is_local: boolean;
     };
     items: Array<{
+        saree_name: string;
         saree_type: string;
         material: string;
         quantity: number;

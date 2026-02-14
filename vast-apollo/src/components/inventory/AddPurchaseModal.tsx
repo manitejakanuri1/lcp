@@ -108,7 +108,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 selling_price_a: item.selling_price_a || 0,
                 selling_price_b: item.selling_price_b || 0,
                 selling_price_c: item.selling_price_c || 0,
-                saree_name: item.saree_type,
+                saree_name: item.saree_name || item.saree_type,
                 saree_type: item.saree_type,
                 material: item.material,
                 color: item.color || '',
@@ -134,7 +134,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 vendor_name: companyName, // Inherit from bill
                 purchase_date: billDate,
                 status: 'available' as const,
-                saree_name: item.saree_type, // Use saree_type as saree_name
+                saree_name: item.saree_name || item.saree_type, // Use extracted full name
                 selling_price: item.selling_price_a, // Backward compatibility
                 selling_price_b: item.selling_price_b || item.selling_price_a, // Default to MRP
                 selling_price_c: item.selling_price_c || item.selling_price_a,  // Default to MRP
@@ -292,6 +292,13 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                 <span className="absolute top-2 right-2 text-xs font-mono text-[var(--color-text-muted)]">#{index + 1}</span>
 
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+                                    <Input
+                                        label="Saree Name"
+                                        value={item.saree_name}
+                                        onChange={(e) => handleItemChange(index, 'saree_name', e.target.value)}
+                                        required
+                                        placeholder="Full name"
+                                    />
                                     <Input
                                         label="Saree Type"
                                         value={item.saree_type}

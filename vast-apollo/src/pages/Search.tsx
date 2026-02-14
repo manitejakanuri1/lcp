@@ -159,7 +159,7 @@ export function Search() {
                                                 </span>
                                             </div>
                                             <p className="text-lg font-medium text-[var(--color-text)]">
-                                                {product.saree_type}
+                                                {product.saree_name || product.saree_type}
                                             </p>
                                             <p className="text-[var(--color-text-muted)]">
                                                 {product.material}
