@@ -545,19 +545,20 @@ app.post('/api/vendor-bills', async (req, res) => {
                 vendor_bill_id: billData.id
             }));
 
-            const { error: productsError } = await supabase
+            const { data: createdProducts, error: productsError } = await supabase
                 .from('products')
-                .insert(productsToInsert);
+                .insert(productsToInsert)
+                .select();
 
             if (productsError) {
                 console.error('Error adding products to bill:', productsError);
-                // Note: ideally we would rollback here, but Supabase HTTP API doesn't support transactions easily without RPC.
-                // For now, we report the error.
                 throw productsError;
             }
+
+            return res.status(201).json({ ...billData, products: createdProducts || [] });
         }
 
-        res.status(201).json(billData);
+        res.status(201).json({ ...billData, products: [] });
     } catch (err) {
         console.error('Failed to create vendor purchase:', err);
         res.status(500).json({ error: 'Failed to create vendor purchase' });

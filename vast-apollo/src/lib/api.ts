@@ -137,7 +137,7 @@ export const productsApi = {
 
 export const vendorBillsApi = {
     create: async (bill: Omit<VendorBill, 'id' | 'created_at'>, products: Omit<Product, 'id' | 'created_at' | 'vendor_bill_id'>[]) => {
-        return request<VendorBill>('/vendor-bills', {
+        return request<VendorBill & { products: Product[] }>('/vendor-bills', {
             method: 'POST',
             body: JSON.stringify({ bill, products }),
         });

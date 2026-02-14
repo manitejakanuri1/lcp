@@ -3,6 +3,7 @@ import { Button, Input, Modal } from '../ui'
 import { vendorBillsApi, type Product, type BillExtractedData } from '../../lib/api'
 import { v4 as uuidv4 } from 'uuid'
 import { BillImageUpload } from './BillImageUpload'
+import { printA4Labels } from './A4LabelSheet'
 
 interface AddPurchaseModalProps {
     isOpen: boolean
@@ -39,6 +40,10 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
 
     // Bill upload section
     const [showUploadSection, setShowUploadSection] = useState(true)
+
+    // Success state
+    const [saveSuccess, setSaveSuccess] = useState(false)
+    const [savedProducts, setSavedProducts] = useState<Product[]>([])
 
     // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + (item.cost_price * item.quantity), 0)
@@ -136,7 +141,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 cost_code: item.cost_code || null // Ensure cost_code is explicitly passed
             }))
 
-            await vendorBillsApi.create({
+            const result = await vendorBillsApi.create({
                 company_name: companyName,
                 bill_number: billNumber,
                 bill_date: billDate,
@@ -149,14 +154,10 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 gst_amount: gstAmount
             }, productsToCreates)
 
+            // Store saved products and show success screen
+            setSavedProducts(result.products || [])
+            setSaveSuccess(true)
             onSuccess()
-            onClose()
-            // Reset form
-            setCompanyName('')
-            setBillNumber('')
-            setVendorGstNumber('')
-            setIsLocalTransaction(true)
-            setItems([{ ...INITIAL_PRODUCT }])
         } catch (err) {
             console.error('Error creating purchase:', err)
             alert('Failed to save purchase bill')
@@ -165,8 +166,83 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         }
     }
 
+    const handleClose = () => {
+        // Reset everything
+        setSaveSuccess(false)
+        setSavedProducts([])
+        setCompanyName('')
+        setBillNumber('')
+        setVendorGstNumber('')
+        setIsLocalTransaction(true)
+        setItems([{ ...INITIAL_PRODUCT }])
+        setShowUploadSection(true)
+        onClose()
+    }
+
+    const handlePrintLabels = () => {
+        if (savedProducts.length > 0) {
+            printA4Labels(savedProducts)
+        }
+    }
+
+    // Success screen after save
+    if (saveSuccess) {
+        const totalLabels = savedProducts.length
+        const totalPages = Math.ceil(totalLabels / 21)
+
+        return (
+            <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
+                <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                    {/* Success Icon */}
+                    <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+
+                    {/* Success Message */}
+                    <div className="text-center">
+                        <h3 className="text-xl font-bold text-[var(--color-text)]">
+                            {totalLabels} products saved successfully!
+                        </h3>
+                        <p className="text-[var(--color-text-muted)] mt-1">
+                            Bill #{billNumber} from {companyName}
+                        </p>
+                    </div>
+
+                    {/* Label Info */}
+                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 w-full max-w-sm text-center">
+                        <p className="text-sm text-[var(--color-text-muted)]">
+                            {totalLabels} labels across {totalPages} A4 sheet{totalPages > 1 ? 's' : ''}
+                        </p>
+                        <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                            3 columns × 7 rows = 21 labels per sheet
+                        </p>
+                    </div>
+
+                    {/* A4 Sheet Button */}
+                    <button
+                        type="button"
+                        onClick={handlePrintLabels}
+                        className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg hover:shadow-xl active:scale-95"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        A4 Sheet ({totalLabels} Labels)
+                    </button>
+
+                    {/* Close Button */}
+                    <Button type="button" variant="secondary" onClick={handleClose}>
+                        Close
+                    </Button>
+                </div>
+            </Modal>
+        )
+    }
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="📥 Stock In (Receive Purchase)" size="lg">
+        <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
             <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Bill Image Upload Section */}
                 {showUploadSection && (
@@ -393,7 +469,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
 
                     {/* Action Buttons */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
-                        <Button type="button" variant="secondary" onClick={onClose}>
+                        <Button type="button" variant="secondary" onClick={handleClose}>
                             Cancel
                         </Button>
                         <Button type="submit" variant="primary" loading={isSubmitting}>
