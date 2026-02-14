@@ -787,6 +787,7 @@ CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap
                 is_local: extractedData.transaction?.is_local ?? true
             },
             items: (extractedData.items || []).map((item) => ({
+                saree_name: item.saree_name || item.saree_type || 'Not specified',
                 saree_type: item.saree_type || 'Not specified',
                 material: item.material || 'Not specified',
                 quantity: parseInt(item.quantity) || 1,
