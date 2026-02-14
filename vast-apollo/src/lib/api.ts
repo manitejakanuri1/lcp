@@ -302,10 +302,19 @@ export const inventoryApi = {
         const formData = new FormData();
         formData.append('billImage', file);
 
+        // Get the token from cookies
+        const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
+
+        const headers: HeadersInit = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const response = await fetch(`${API_BASE}/inventory/upload-bill`, {
             method: 'POST',
             body: formData, // Don't set Content-Type, browser will set it with boundary
             credentials: 'include',
+            headers,
         });
 
         if (!response.ok) {
