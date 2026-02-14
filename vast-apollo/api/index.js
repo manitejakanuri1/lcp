@@ -5,7 +5,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
-import Anthropic from '@anthropic-ai/sdk';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import sharp from 'sharp';
 
 // Load environment variables
@@ -20,10 +20,8 @@ const supabase = createClient(
     process.env.SUPABASE_SERVICE_KEY
 );
 
-// Initialize Anthropic client for bill image extraction
-const anthropic = new Anthropic({
-    apiKey: process.env.ANTHROPIC_API_KEY
-});
+// Initialize Google Gemini client for bill image extraction
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY);
 
 // Configure multer for memory storage (file upload)
 const upload = multer({
@@ -644,10 +642,10 @@ app.put('/api/users/:id/role', authenticateToken, async (req, res) => {
 
 app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
     try {
-        // Check if Anthropic API key is configured
-        if (!process.env.ANTHROPIC_API_KEY) {
+        // Check if Gemini API key is configured
+        if (!process.env.GOOGLE_GEMINI_API_KEY) {
             return res.status(500).json({
-                error: 'ANTHROPIC_API_KEY not configured. Please contact administrator to set up the API key in environment variables.'
+                error: 'GOOGLE_GEMINI_API_KEY not configured. Please contact administrator to set up the API key in environment variables.'
             });
         }
 
@@ -681,28 +679,14 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
             return res.status(500).json({ error: 'Failed to upload image to storage' });
         }
 
-        // 2. Convert image to base64 for Claude Vision API
+        // 2. Convert image to base64 for Gemini Vision API
         const base64Image = imageBuffer.toString('base64');
         const mediaType = mimeType === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
 
-        // 3. Call Claude Vision API with structured prompt
-        const response = await anthropic.messages.create({
-            model: 'claude-3-5-sonnet-20241022',
-            max_tokens: 2048,
-            messages: [{
-                role: 'user',
-                content: [
-                    {
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: mediaType,
-                            data: base64Image,
-                        },
-                    },
-                    {
-                        type: 'text',
-                        text: `You are an expert at extracting data from Indian GST invoices and purchase bills for a saree inventory system.
+        // 3. Call Gemini Vision API with structured prompt
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+
+        const prompt = `You are an expert at extracting data from Indian GST invoices and purchase bills for a saree inventory system.
 
 Analyze this bill/invoice image and extract the following information in JSON format:
 
@@ -742,26 +726,44 @@ If any field is unclear or missing, use these defaults:
 - hsn_code: "5407"
 - quantity: 1
 
-Return ONLY valid JSON, no markdown or explanations.`
-                    }
-                ]
-            }]
-        });
+CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap in markdown code blocks. Do NOT use \`\`\`json tags. Your response must be parseable directly as JSON.`;
 
-        // 4. Parse Claude's response
-        const extractedText = response.content[0].text;
+        const result = await model.generateContent([
+            prompt,
+            {
+                inlineData: {
+                    data: base64Image,
+                    mimeType: mediaType
+                }
+            }
+        ]);
+
+        const response = result.response;
+        const extractedText = response.text();
+
+        // 4. Parse Gemini's response
         let extractedData;
 
         try {
+            // Gemini sometimes wraps JSON in markdown code blocks, so strip them
+            let cleanedText = extractedText.trim();
+
+            // Remove markdown code block if present
+            if (cleanedText.startsWith('```json')) {
+                cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+            } else if (cleanedText.startsWith('```')) {
+                cleanedText = cleanedText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+            }
+
             // Try to parse JSON from response
-            const jsonMatch = extractedText.match(/\{[\s\S]*\}/);
+            const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
                 extractedData = JSON.parse(jsonMatch[0]);
             } else {
                 throw new Error('No JSON found in response');
             }
         } catch (parseError) {
-            console.error('Failed to parse Claude response:', extractedText);
+            console.error('Failed to parse Gemini response:', extractedText);
             return res.status(500).json({
                 error: 'Failed to extract structured data from image',
                 raw_response: extractedText
@@ -810,13 +812,13 @@ Return ONLY valid JSON, no markdown or explanations.`
         let statusCode = 500;
         let errorMessage = 'Failed to process bill image';
 
-        if (error.message && error.message.includes('ANTHROPIC_API_KEY')) {
+        if (error.message && error.message.includes('GOOGLE_GEMINI_API_KEY')) {
             statusCode = 500;
-            errorMessage = 'Anthropic API key not configured. Please contact administrator.';
-        } else if (error.status === 401 || error.message?.includes('authentication')) {
+            errorMessage = 'Google Gemini API key not configured. Please contact administrator.';
+        } else if (error.status === 401 || error.message?.includes('API key not valid') || error.message?.includes('authentication')) {
             statusCode = 401;
-            errorMessage = 'Anthropic API authentication failed. Check API key.';
-        } else if (error.status === 429 || error.message?.includes('rate limit')) {
+            errorMessage = 'Google Gemini API authentication failed. Check API key.';
+        } else if (error.status === 429 || error.message?.includes('rate limit') || error.message?.includes('quota')) {
             statusCode = 429;
             errorMessage = 'API rate limit exceeded. Please try again in a few minutes.';
         } else if (error.message?.includes('timeout')) {
