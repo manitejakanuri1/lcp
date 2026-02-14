@@ -72,7 +72,7 @@ app.use(cookieParser());
 // JWT middleware
 import jwt from 'jsonwebtoken';
 
-const authenticateToken = (req, res, next) => {
+const authenticateToken = async (req, res, next) => {
     const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
 
     if (!token) {
@@ -80,11 +80,24 @@ const authenticateToken = (req, res, next) => {
     }
 
     try {
+        // Try JWT verification first (for cookie-based auth)
         const verified = jwt.verify(token, process.env.JWT_SECRET);
         req.user = verified;
         next();
-    } catch (err) {
-        res.status(403).json({ error: 'Invalid token' });
+    } catch (jwtErr) {
+        // If JWT verification fails, try Supabase token validation
+        try {
+            const { data: { user }, error } = await supabase.auth.getUser(token);
+
+            if (error || !user) {
+                return res.status(403).json({ error: 'Invalid token' });
+            }
+
+            req.user = { id: user.id, email: user.email };
+            next();
+        } catch (supabaseErr) {
+            res.status(403).json({ error: 'Invalid token' });
+        }
     }
 };
 

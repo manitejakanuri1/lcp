@@ -302,8 +302,24 @@ export const inventoryApi = {
         const formData = new FormData();
         formData.append('billImage', file);
 
-        // Get the token from cookies
-        const token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1];
+        // Get the Supabase session token from localStorage or cookies
+        let token: string | null = null;
+
+        // Try to get token from cookie first
+        token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] || null;
+
+        // If not in cookie, try to get from Supabase session in localStorage
+        if (!token) {
+            try {
+                const supabaseSession = localStorage.getItem('sb-ndheubawdszpumtzwolm-auth-token');
+                if (supabaseSession) {
+                    const sessionData = JSON.parse(supabaseSession);
+                    token = sessionData?.access_token || null;
+                }
+            } catch (e) {
+                console.error('Failed to parse Supabase session:', e);
+            }
+        }
 
         const headers: HeadersInit = {};
         if (token) {
