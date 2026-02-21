@@ -5,7 +5,7 @@ import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
-import { BulkBarcodeModal } from '../components/BulkBarcodeModal'
+
 import { v4 as uuidv4 } from 'uuid'
 
 export function Inventory() {
@@ -18,10 +18,10 @@ export function Inventory() {
     const dateInputRef = useRef<HTMLInputElement>(null)
     const [isEditMode, setIsEditMode] = useState(false)
     const [editFormData, setEditFormData] = useState<Partial<Product>>({})
+    const [editDiscountPercent, setEditDiscountPercent] = useState('')
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
-    const [isBulkBarcodeModalOpen, setIsBulkBarcodeModalOpen] = useState(false)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -32,6 +32,7 @@ export function Inventory() {
         cost_code: '',
         selling_price_a: '',
         selling_price_b: '',
+        discount_percent: '',
         saree_name: '',
         material: '',
         color: '',
@@ -94,6 +95,7 @@ export function Inventory() {
                 cost_code: '',
                 selling_price_a: '',
                 selling_price_b: '',
+                discount_percent: '',
                 saree_name: '',
                 material: '',
                 color: '',
@@ -138,6 +140,7 @@ export function Inventory() {
             quantity: product.quantity,
             rack_location: product.rack_location
         })
+        setEditDiscountPercent('')
         setIsEditMode(true)
     }
 
@@ -188,9 +191,7 @@ export function Inventory() {
                         </p>
                     </div>
                     <div className="flex gap-2">
-                        <Button variant="secondary" onClick={() => setIsBulkBarcodeModalOpen(true)}>
-                            📄 Bulk Barcodes
-                        </Button>
+
                         <Button variant="secondary" onClick={() => setIsPurchaseModalOpen(true)}>
                             📥 Stock In
                         </Button>
@@ -242,15 +243,15 @@ export function Inventory() {
                                     {/* Details */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-mono text-sm font-bold text-indigo-500">{product.sku}</span>
+                                            <span className="font-mono text-sm font-bold text-[var(--color-accent-text)]">{product.sku}</span>
                                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${product.status === 'available'
-                                                ? 'bg-green-500/10 text-green-500'
-                                                : 'bg-red-500/10 text-red-500'
+                                                ? 'bg-green-500/10 text-[var(--color-success-text)]'
+                                                : 'bg-red-500/10 text-[var(--color-danger-text)]'
                                                 }`}>
                                                 {product.status}
                                             </span>
                                             {product.quantity > 1 && (
-                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">
+                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-[var(--color-info-text)]">
                                                     Qty: {product.quantity}
                                                 </span>
                                             )}
@@ -262,8 +263,8 @@ export function Inventory() {
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
                                         )}
                                         <div className="flex gap-4 mt-1 text-sm">
-                                            <span className="text-red-500">Cost: {formatCurrency(product.cost_price)}</span>
-                                            <span className="text-green-500">Sell: {formatCurrency(product.selling_price_a)}</span>
+                                            <span className="text-[var(--color-danger-text)]">Cost: {formatCurrency(product.cost_price)}</span>
+                                            <span className="text-[var(--color-success-text)]">Sell: {formatCurrency(product.selling_price_a)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -364,7 +365,7 @@ export function Inventory() {
 
                         {/* Selling Prices Section */}
                         <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                            <h4 className="text-sm font-semibold text-green-500 mb-3">💰 Selling Prices (₹)</h4>
+                            <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">💰 Selling Prices (₹)</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <Input
                                     type="number"
@@ -379,10 +380,36 @@ export function Inventory() {
                                     type="number"
                                     label="Discount Price"
                                     value={formData.selling_price_b}
-                                    onChange={(e) => setFormData({ ...formData, selling_price_b: e.target.value })}
+                                    onChange={(e) => {
+                                        const discPrice = e.target.value
+                                        const pct = parseFloat(formData.discount_percent)
+                                        const updated: typeof formData = { ...formData, selling_price_b: discPrice }
+                                        if (discPrice && pct > 0 && pct < 100) {
+                                            updated.selling_price_a = Math.round(parseFloat(discPrice) / (1 - pct / 100)).toString()
+                                        }
+                                        setFormData(updated)
+                                    }}
                                     required
                                     min="0"
                                     step="0.01"
+                                />
+                                <Input
+                                    type="number"
+                                    label="Disc %"
+                                    value={formData.discount_percent}
+                                    onChange={(e) => {
+                                        const pct = e.target.value
+                                        const discPrice = parseFloat(formData.selling_price_b)
+                                        const updated: typeof formData = { ...formData, discount_percent: pct }
+                                        if (pct && discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                            updated.selling_price_a = Math.round(discPrice / (1 - parseFloat(pct) / 100)).toString()
+                                        }
+                                        setFormData(updated)
+                                    }}
+                                    min="0"
+                                    max="99"
+                                    step="0.1"
+                                    placeholder="%"
                                 />
                             </div>
                         </div>
@@ -450,21 +477,21 @@ export function Inventory() {
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Cost Price</p>
-                                    <p className="font-medium text-red-500">{formatCurrency(selectedProduct.cost_price)}</p>
+                                    <p className="font-medium text-[var(--color-danger-text)]">{formatCurrency(selectedProduct.cost_price)}</p>
                                 </div>
                             </div>
 
                             {/* Selling Prices */}
                             <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                                <h4 className="text-sm font-semibold text-green-500 mb-3">💰 Selling Prices</h4>
+                                <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">💰 Selling Prices</h4>
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">MRP</p>
-                                        <p className="font-medium text-green-500">{formatCurrency(selectedProduct.selling_price_a)}</p>
+                                        <p className="font-medium text-[var(--color-success-text)]">{formatCurrency(selectedProduct.selling_price_a)}</p>
                                     </div>
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">Discount Price</p>
-                                        <p className="font-medium text-blue-500">{formatCurrency(selectedProduct.selling_price_b)}</p>
+                                        <p className="font-medium text-[var(--color-info-text)]">{formatCurrency(selectedProduct.selling_price_b)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -480,7 +507,7 @@ export function Inventory() {
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Status</p>
-                                    <p className={`font-medium ${selectedProduct.status === 'available' ? 'text-green-500' : 'text-red-500'}`}>
+                                    <p className={`font-medium ${selectedProduct.status === 'available' ? 'text-[var(--color-success-text)]' : 'text-[var(--color-danger-text)]'}`}>
                                         {selectedProduct.status}
                                     </p>
                                 </div>
@@ -511,7 +538,7 @@ export function Inventory() {
                                     fullWidth
                                     onClick={() => handleDelete(selectedProduct)}
                                     loading={isDeleting}
-                                    className="!bg-red-500/10 !text-red-500 hover:!bg-red-500/20"
+                                    className="!bg-red-500/10 !text-[var(--color-danger-text)] hover:!bg-red-500/20"
                                 >
                                     🗑️ Delete
                                 </Button>
@@ -565,7 +592,32 @@ export function Inventory() {
                                     type="number"
                                     label="Discount Price (₹)"
                                     value={editFormData.selling_price_b?.toString() || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, selling_price_b: parseFloat(e.target.value) })}
+                                    onChange={(e) => {
+                                        const discPrice = parseFloat(e.target.value)
+                                        const pct = parseFloat(editDiscountPercent)
+                                        const updated = { ...editFormData, selling_price_b: discPrice }
+                                        if (discPrice > 0 && pct > 0 && pct < 100) {
+                                            updated.selling_price_a = Math.round(discPrice / (1 - pct / 100))
+                                        }
+                                        setEditFormData(updated)
+                                    }}
+                                />
+                                <Input
+                                    type="number"
+                                    label="Disc %"
+                                    value={editDiscountPercent}
+                                    onChange={(e) => {
+                                        const pct = e.target.value
+                                        setEditDiscountPercent(pct)
+                                        const discPrice = editFormData.selling_price_b
+                                        if (discPrice && discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                            setEditFormData({ ...editFormData, selling_price_a: Math.round(discPrice / (1 - parseFloat(pct) / 100)) })
+                                        }
+                                    }}
+                                    min="0"
+                                    max="99"
+                                    step="0.1"
+                                    placeholder="%"
                                 />
                                 <Input
                                     type="number"
@@ -611,12 +663,6 @@ export function Inventory() {
                     />
                 )}
 
-                {/* Bulk Barcode Modal */}
-                <BulkBarcodeModal
-                    isOpen={isBulkBarcodeModalOpen}
-                    onClose={() => setIsBulkBarcodeModalOpen(false)}
-                    products={products}
-                />
             </div>
         </Layout>
     )

@@ -3,7 +3,7 @@ import { Button, Input, Modal } from '../ui'
 import { vendorBillsApi, type Product, type BillExtractedData } from '../../lib/api'
 import { v4 as uuidv4 } from 'uuid'
 import { BillImageUpload } from './BillImageUpload'
-import { printA4Labels } from './A4LabelSheet'
+import { printThermalLabels } from './ThermalLabel'
 
 interface AddPurchaseModalProps {
     isOpen: boolean
@@ -32,6 +32,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const [billNumber, setBillNumber] = useState('')
     const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0])
     const [items, setItems] = useState<ProductEntry[]>([{ ...INITIAL_PRODUCT }])
+    const [discountPercents, setDiscountPercents] = useState<string[]>([''])
     const [isSubmitting, setIsSubmitting] = useState(false)
 
     // GST fields
@@ -87,11 +88,13 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const addItem = () => {
         const lastItem = items[items.length - 1]
         setItems([...items, { ...lastItem, sku: '' }]) // Copy previous item but clear SKU
+        setDiscountPercents([...discountPercents, discountPercents[discountPercents.length - 1] || ''])
     }
 
     const removeItem = (index: number) => {
         if (items.length === 1) return
         setItems(items.filter((_, i) => i !== index))
+        setDiscountPercents(discountPercents.filter((_, i) => i !== index))
     }
 
     const handleBillDataExtracted = (extractedData: BillExtractedData) => {
@@ -117,6 +120,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 quantity: item.quantity,
                 rack_location: item.rack_location || ''
             })))
+            setDiscountPercents(extractedData.items.map(() => ''))
         }
 
         // Hide upload section after successful extraction
@@ -175,27 +179,27 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         setVendorGstNumber('')
         setIsLocalTransaction(true)
         setItems([{ ...INITIAL_PRODUCT }])
+        setDiscountPercents([''])
         setShowUploadSection(true)
         onClose()
     }
 
-    const handlePrintLabels = () => {
+    const handlePrintThermalLabels = () => {
         if (savedProducts.length > 0) {
-            printA4Labels(savedProducts)
+            printThermalLabels(savedProducts)
         }
     }
 
     // Success screen after save
     if (saveSuccess) {
         const totalLabels = savedProducts.length
-        const totalPages = Math.ceil(totalLabels / 21)
 
         return (
             <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
                 <div className="flex flex-col items-center justify-center py-8 space-y-6">
                     {/* Success Icon */}
                     <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
-                        <svg className="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-10 h-10 text-[var(--color-success-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                         </svg>
                     </div>
@@ -213,23 +217,23 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                     {/* Label Info */}
                     <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 w-full max-w-sm text-center">
                         <p className="text-sm text-[var(--color-text-muted)]">
-                            {totalLabels} labels across {totalPages} A4 sheet{totalPages > 1 ? 's' : ''}
+                            {totalLabels} thermal label{totalLabels > 1 ? 's' : ''} ready to print
                         </p>
                         <p className="text-xs text-[var(--color-text-muted)] mt-1">
-                            3 columns × 7 rows = 21 labels per sheet
+                            50mm × 30mm — ATPOS MD80
                         </p>
                     </div>
 
-                    {/* A4 Sheet Button */}
+                    {/* Thermal Labels Button */}
                     <button
                         type="button"
-                        onClick={handlePrintLabels}
+                        onClick={handlePrintThermalLabels}
                         className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg hover:shadow-xl active:scale-95"
                     >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
                         </svg>
-                        A4 Sheet ({totalLabels} Labels)
+                        Print Labels MD80 ({totalLabels})
                     </button>
 
                     {/* Close Button */}
@@ -250,7 +254,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                         <div className="flex items-start justify-between mb-3">
                             <div>
                                 <h3 className="font-semibold text-[var(--color-text)] flex items-center gap-2">
-                                    <svg className="w-5 h-5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-5 h-5 text-[var(--color-accent-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                     </svg>
                                     Quick Fill from Bill Image
@@ -277,7 +281,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                     <button
                         type="button"
                         onClick={() => setShowUploadSection(true)}
-                        className="w-full bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-3 text-sm text-indigo-500 font-medium transition-colors flex items-center justify-center gap-2"
+                        className="w-full bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-3 text-sm text-[var(--color-accent-text)] font-medium transition-colors flex items-center justify-center gap-2"
                     >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -386,7 +390,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                                     <Input
                                         label="Cost Price (₹)"
                                         type="number"
@@ -405,7 +409,37 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         label="Discount Price (₹)"
                                         type="number"
                                         value={item.selling_price_b.toString()}
-                                        onChange={(e) => handleItemChange(index, 'selling_price_b', parseFloat(e.target.value) || 0)}
+                                        onChange={(e) => {
+                                            const discPrice = parseFloat(e.target.value) || 0
+                                            const pct = parseFloat(discountPercents[index])
+                                            const newItems = [...items]
+                                            newItems[index] = { ...newItems[index], selling_price_b: discPrice }
+                                            if (discPrice > 0 && pct > 0 && pct < 100) {
+                                                newItems[index].selling_price_a = Math.round(discPrice / (1 - pct / 100))
+                                            }
+                                            setItems(newItems)
+                                        }}
+                                    />
+                                    <Input
+                                        label="Disc %"
+                                        type="number"
+                                        value={discountPercents[index] || ''}
+                                        onChange={(e) => {
+                                            const pct = e.target.value
+                                            const newPercents = [...discountPercents]
+                                            newPercents[index] = pct
+                                            setDiscountPercents(newPercents)
+                                            const discPrice = item.selling_price_b
+                                            if (discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                                const newItems = [...items]
+                                                newItems[index] = { ...newItems[index], selling_price_a: Math.round(discPrice / (1 - parseFloat(pct) / 100)) }
+                                                setItems(newItems)
+                                            }
+                                        }}
+                                        min="0"
+                                        max="99"
+                                        step="0.1"
+                                        placeholder="%"
                                     />
                                 </div>
 
@@ -423,7 +457,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     />
                                     <div className="flex items-end">
                                         {items.length > 1 && (
-                                            <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-red-500 !bg-red-500/10 w-full">
+                                            <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-[var(--color-danger-text)] !bg-red-500/10 w-full">
                                                 Remove
                                             </Button>
                                         )}
@@ -462,7 +496,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             )}
                             <div className="col-span-2 border-t border-indigo-500/30 mt-2 pt-2 flex justify-between">
                                 <span className="font-semibold text-[var(--color-text)]">Total Amount:</span>
-                                <span className="font-bold text-lg text-indigo-500">₹{totalAmount.toFixed(2)}</span>
+                                <span className="font-bold text-lg text-[var(--color-accent-text)]">₹{totalAmount.toFixed(2)}</span>
                             </div>
                         </div>
                     </div>

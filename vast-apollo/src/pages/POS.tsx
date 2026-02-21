@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, billsApi, type Product } from '../lib/api'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { printThermalReceipt } from '../components/ThermalReceipt'
 
 interface CartItem {
     product: Product
@@ -36,7 +37,15 @@ export function POS() {
         setTimeout(() => {
             const scanner = new Html5QrcodeScanner(
                 'qr-reader',
-                { fps: 10, qrbox: { width: 250, height: 250 } },
+                {
+                    fps: 10,
+                    qrbox: { width: 300, height: 100 },
+                    formatsToSupport: [
+                        Html5QrcodeSupportedFormats.CODE_128,
+                        Html5QrcodeSupportedFormats.CODE_39,
+                        Html5QrcodeSupportedFormats.EAN_13,
+                    ]
+                },
                 false
             )
 
@@ -184,148 +193,6 @@ export function POS() {
         }).format(value)
     }
 
-    const printBill = (billNumber: string, total: number, items: CartItem[], customer: string, phone: string, payment: string) => {
-        const printWindow = window.open('', '_blank')
-        if (!printWindow) return
-
-        const now = new Date()
-        const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-
-        const itemsHtml = items.map((item, index) => `
-            <tr>
-                <td style="border: 1px solid #333; padding: 8px; text-align: center;">${index + 1}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.saree_name || 'Unnamed'}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.sku}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.material || '-'}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.quantity}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: right;">₹${item.product.selling_price_a.toLocaleString('en-IN')}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">₹${(item.product.selling_price_a * item.quantity).toLocaleString('en-IN')}</td>
-            </tr>
-        `).join('')
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Invoice - ${billNumber}</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Courier New', monospace; font-size: 12px; padding: 20px; background: #fff; color: #000; }
-                    .invoice { max-width: 800px; margin: 0 auto; border: 2px solid #333; }
-                    .header { text-align: center; border-bottom: 2px solid #333; padding: 15px; background: #f5f5f5; }
-                    .company-name { font-size: 24px; font-weight: bold; letter-spacing: 2px; margin-bottom: 5px; }
-                    .company-tagline { font-size: 11px; color: #666; }
-                    .invoice-title { background: #333; color: #fff; text-align: center; padding: 8px; font-size: 14px; font-weight: bold; letter-spacing: 3px; }
-                    .details-row { display: flex; border-bottom: 1px solid #333; }
-                    .details-col { flex: 1; padding: 10px; }
-                    .details-col:first-child { border-right: 1px solid #333; }
-                    .label { font-weight: bold; color: #666; font-size: 10px; text-transform: uppercase; }
-                    .value { font-size: 12px; margin-top: 3px; }
-                    table { width: 100%; border-collapse: collapse; }
-                    th { background: #eee; border: 1px solid #333; padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
-                    .totals { border-top: 2px solid #333; }
-                    .total-row { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #ddd; }
-                    .grand-total { background: #333; color: #fff; font-size: 16px; font-weight: bold; }
-                    .footer { text-align: center; padding: 15px; border-top: 2px solid #333; background: #f5f5f5; }
-                    .footer-text { font-size: 11px; color: #666; margin-top: 5px; }
-                    .signature { margin-top: 30px; display: flex; justify-content: space-between; padding: 0 30px; }
-                    .sig-box { text-align: center; }
-                    .sig-line { border-top: 1px solid #333; width: 150px; margin-top: 40px; padding-top: 5px; }
-                    @media print { body { padding: 0; } .invoice { border: none; } }
-                </style>
-            </head>
-            <body>
-                <div class="invoice">
-                    <div class="header">
-                        <div class="company-name">LAKSHMI SAREE MANDIR</div>
-                        <div class="company-tagline">Premium Sarees & Traditional Wear</div>
-                    </div>
-                    
-                    <div class="invoice-title">TAX INVOICE</div>
-                    
-                    <div class="details-row">
-                        <div class="details-col">
-                            <div class="label">Invoice No.</div>
-                            <div class="value" style="font-weight: bold; font-size: 14px;">${billNumber}</div>
-                        </div>
-                        <div class="details-col">
-                            <div class="label">Date & Time</div>
-                            <div class="value">${dateStr} | ${timeStr}</div>
-                        </div>
-                    </div>
-                    
-                    <div class="details-row">
-                        <div class="details-col">
-                            <div class="label">Customer Name</div>
-                            <div class="value">${customer || 'Walk-in Customer'}</div>
-                        </div>
-                        <div class="details-col">
-                            <div class="label">Phone / Payment</div>
-                            <div class="value">${phone || '-'} | ${payment.toUpperCase()}</div>
-                        </div>
-                    </div>
-                    
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width: 40px; text-align: center;">S.No</th>
-                                <th>Particulars</th>
-                                <th style="width: 100px;">SKU</th>
-                                <th style="width: 80px;">Material</th>
-                                <th style="width: 50px; text-align: center;">Qty</th>
-                                <th style="width: 90px; text-align: right;">Rate</th>
-                                <th style="width: 100px; text-align: right;">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHtml}
-                        </tbody>
-                    </table>
-                    
-                    <div class="totals">
-                        <div class="total-row">
-                            <span>Sub Total</span>
-                            <span>₹${items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row">
-                            <span>CGST (2.5%)</span>
-                            <span>₹${Math.round(items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0) * 0.025).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row">
-                            <span>SGST (2.5%)</span>
-                            <span>₹${Math.round(items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0) * 0.025).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row grand-total">
-                            <span>GRAND TOTAL</span>
-                            <span>₹${total.toLocaleString('en-IN')}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="signature">
-                        <div class="sig-box">
-                            <div class="sig-line">Customer Signature</div>
-                        </div>
-                        <div class="sig-box">
-                            <div class="sig-line">Authorized Signature</div>
-                        </div>
-                    </div>
-                    
-                    <div class="footer">
-                        <div style="font-weight: bold;">Thank you for shopping with us!</div>
-                        <div class="footer-text">Goods once sold will not be taken back or exchanged.</div>
-                        <div class="footer-text">Subject to local jurisdiction.</div>
-                    </div>
-                </div>
-                
-                <script>
-                    window.onload = function() { window.print(); }
-                </script>
-            </body>
-            </html>
-        `)
-        printWindow.document.close()
-    }
 
     return (
         <Layout>
@@ -333,7 +200,7 @@ export function POS() {
                 {/* Header */}
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-[var(--color-text)]">Point of Sale</h1>
-                    <p className="text-[var(--color-text-muted)]">Scan items to add to cart</p>
+                    <p className="text-[var(--color-text-muted)]">Scan product barcode to add to cart</p>
                 </div>
 
                 {/* Success Message */}
@@ -341,7 +208,7 @@ export function POS() {
                     <div className="mb-6 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
                         <div className="flex items-center justify-between mb-3">
                             <div>
-                                <p className="text-green-500 font-medium">Bill #{lastBill.billNumber} created!</p>
+                                <p className="text-[var(--color-success-text)] font-medium">Bill #{lastBill.billNumber} created!</p>
                                 <p className="text-sm text-[var(--color-text-muted)]">Total: {formatCurrency(lastBill.total)}</p>
                             </div>
                             <Button variant="ghost" onClick={() => { setLastBill(null); setLastBillData(null); }}>✕</Button>
@@ -350,9 +217,9 @@ export function POS() {
                             <Button
                                 variant="primary"
                                 fullWidth
-                                onClick={() => printBill(lastBill.billNumber, lastBill.total, lastBillData.items, lastBillData.customer, lastBillData.phone, lastBillData.payment)}
+                                onClick={() => printThermalReceipt(lastBill.billNumber, lastBill.total, lastBillData.items, lastBillData.customer, lastBillData.phone, lastBillData.payment)}
                             >
-                                🖨️ Print Invoice (Tally Style)
+                                🖨️ Print Receipt (MD80)
                             </Button>
                         )}
                     </div>
@@ -361,7 +228,7 @@ export function POS() {
                 {/* Error Message */}
                 {error && (
                     <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-between">
-                        <p className="text-red-500">{error}</p>
+                        <p className="text-[var(--color-danger-text)]">{error}</p>
                         <Button variant="ghost" onClick={() => setError('')}>✕</Button>
                     </div>
                 )}
@@ -383,7 +250,7 @@ export function POS() {
                                 fullWidth
                                 onClick={startScanner}
                             >
-                                📷 Scan QR Code
+                                📷 Scan Barcode
                             </Button>
 
                             <div className="relative">
@@ -427,7 +294,7 @@ export function POS() {
                                     <div key={item.product.sku} className="p-4">
                                         <div className="flex items-start justify-between mb-2">
                                             <div>
-                                                <p className="font-mono text-sm text-indigo-500">{item.product.sku}</p>
+                                                <p className="font-mono text-sm text-[var(--color-accent-text)]">{item.product.sku}</p>
                                                 <p className="text-[var(--color-text)]">
                                                     {item.product.saree_name || 'Unnamed'} • {item.product.material}
                                                 </p>
@@ -437,7 +304,7 @@ export function POS() {
                                             </div>
                                             <button
                                                 onClick={() => removeFromCart(item.product.sku)}
-                                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                className="p-2 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded-lg transition-colors"
                                             >
                                                 ✕
                                             </button>
