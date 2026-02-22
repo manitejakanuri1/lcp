@@ -374,6 +374,31 @@ app.get('/api/bills/generate-number', async (req, res) => {
     }
 });
 
+// Get single bill by ID with product details
+app.get('/api/bills/:id', async (req, res) => {
+    try {
+        const { data: bill, error: billError } = await supabase
+            .from('bills')
+            .select('*')
+            .eq('id', req.params.id)
+            .single();
+
+        if (billError) throw billError;
+
+        const { data: billItems, error: itemsError } = await supabase
+            .from('bill_items')
+            .select('*, products(*)')
+            .eq('bill_id', req.params.id);
+
+        if (itemsError) throw itemsError;
+
+        res.json({ ...bill, bill_items: billItems });
+    } catch (err) {
+        console.error('Error fetching bill details:', err);
+        res.status(500).json({ error: 'Failed to fetch bill details' });
+    }
+});
+
 // Create bill
 app.post('/api/bills', async (req, res) => {
     try {

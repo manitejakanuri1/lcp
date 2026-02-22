@@ -19,6 +19,7 @@ export function Layout({ children }: { children: ReactNode }) {
         { path: '/dashboard', label: 'Dashboard', icon: '📊' },
         { path: '/inventory', label: 'Inventory', icon: '📦' },
         { path: '/purchases', label: 'Purchases', icon: '📋' },
+        { path: '/sales-bills', label: 'Sales', icon: '🧾' },
         { path: '/pos', label: 'POS', icon: '🛒' },
         { path: '/search', label: 'Search', icon: '🔍' },
         { path: '/analytics', label: 'Analytics', icon: '📈' },

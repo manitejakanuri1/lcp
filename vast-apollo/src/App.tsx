@@ -10,7 +10,8 @@ import {
   Search,
   Analytics,
   Users,
-  Purchases
+  Purchases,
+  SalesBills
 } from './pages'
 
 /**
@@ -59,6 +60,15 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={['founder', 'accounting']}>
             <Purchases />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/sales-bills"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <SalesBills />
           </ProtectedRoute>
         }
       />

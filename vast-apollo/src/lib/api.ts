@@ -159,6 +159,7 @@ export interface BillItem {
     selling_price: number;
     cost_price: number;
     quantity: number;
+    products?: Product;
 }
 
 export interface Bill {
@@ -177,6 +178,10 @@ export interface Bill {
 export const billsApi = {
     getAll: async () => {
         return request<Bill[]>('/bills');
+    },
+
+    getById: async (id: string) => {
+        return request<Bill>(`/bills/${id}`);
     },
 
     generateNumber: async () => {
