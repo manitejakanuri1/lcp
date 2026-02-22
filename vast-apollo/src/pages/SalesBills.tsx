@@ -163,7 +163,6 @@ export function SalesBills() {
                     </div>
                 ) : filteredBills.length === 0 ? (
                     <div className="text-center py-12">
-                        <p className="text-4xl mb-2">🧾</p>
                         <p className="text-[var(--color-text-muted)]">
                             {filter ? 'No bills match your search' : 'No sales bills yet'}
                         </p>
@@ -173,7 +172,7 @@ export function SalesBills() {
                         {filteredBills.map((bill) => (
                             <div
                                 key={bill.id}
-                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer"
                                 onClick={() => handleBillClick(bill)}
                             >
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -216,7 +215,7 @@ export function SalesBills() {
                                                 className="p-1.5 rounded-lg hover:bg-blue-500/10 text-blue-500 transition-colors text-sm"
                                                 title="Edit"
                                             >
-                                                ✏️
+                                                Edit
                                             </button>
                                             <button
                                                 onClick={(e) => handleDeleteBill(e, bill)}
@@ -224,7 +223,7 @@ export function SalesBills() {
                                                 title="Delete"
                                                 disabled={isDeleting}
                                             >
-                                                🗑️
+                                                Del
                                             </button>
                                         </div>
                                     </div>
@@ -369,8 +368,8 @@ export function SalesBills() {
                                         <button
                                             key={method}
                                             onClick={() => setEditFormData({ ...editFormData, payment_method: method })}
-                                            className={`flex-1 py-2 rounded-xl font-medium capitalize transition-all ${editFormData.payment_method === method
-                                                ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                            className={`flex-1 py-2 rounded-lg font-medium capitalize transition-all ${editFormData.payment_method === method
+                                                ? 'bg-[var(--color-primary)] text-white'
                                                 : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                                 }`}
                                         >

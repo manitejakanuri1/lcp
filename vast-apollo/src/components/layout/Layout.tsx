@@ -2,72 +2,125 @@ import { useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ThemeToggle } from '../ui'
 import { useAuth } from '../../contexts/AuthContext'
+import {
+    LayoutDashboard,
+    Package,
+    FileText,
+    Receipt,
+    ShoppingCart,
+    Search,
+    BarChart3,
+    Users,
+    LogOut,
+    Menu,
+    X,
+    ChevronsLeft,
+} from 'lucide-react'
 
 export function Layout({ children }: { children: ReactNode }) {
     const location = useLocation()
     const navigate = useNavigate()
     const { profile, signOut } = useAuth()
-    const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+    const [sidebarOpen, setSidebarOpen] = useState(false)
+    const [collapsed, setCollapsed] = useState(false)
 
     const handleLogout = async () => {
         await signOut()
         navigate('/login', { replace: true })
     }
 
-    // All nav items visible (no auth restrictions for now)
     const navItems = [
-        { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-        { path: '/inventory', label: 'Inventory', icon: '📦' },
-        { path: '/purchases', label: 'Purchases', icon: '📋' },
-        { path: '/sales-bills', label: 'Sales', icon: '🧾' },
-        { path: '/pos', label: 'POS', icon: '🛒' },
-        { path: '/search', label: 'Search', icon: '🔍' },
-        { path: '/analytics', label: 'Analytics', icon: '📈' },
-        { path: '/users', label: 'Users', icon: '👥' },
+        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+        { path: '/inventory', label: 'Inventory', icon: Package },
+        { path: '/purchases', label: 'Purchases', icon: FileText },
+        { path: '/sales-bills', label: 'Sales', icon: Receipt },
+        { path: '/pos', label: 'POS', icon: ShoppingCart },
+        { path: '/search', label: 'Search', icon: Search },
+        { path: '/analytics', label: 'Analytics', icon: BarChart3 },
+        { path: '/users', label: 'Users', icon: Users },
     ]
 
     const isActive = (path: string) => location.pathname === path
 
     return (
-        <div className="min-h-screen bg-[var(--color-surface)] flex flex-col">
-            {/* Header */}
-            <header className="sticky top-0 z-40 bg-[var(--color-surface-elevated)] border-b border-[var(--color-border)] backdrop-blur-lg">
-                <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-                    {/* Logo */}
-                    <Link to="/dashboard" className="flex items-center gap-2">
+        <div className="min-h-screen bg-[var(--color-surface)] flex">
+            {/* Sidebar overlay (mobile) */}
+            {sidebarOpen && (
+                <div
+                    className="fixed inset-0 z-40 bg-black/40 lg:hidden animate-fade-in"
+                    onClick={() => setSidebarOpen(false)}
+                />
+            )}
 
-                        <span className="font-bold text-lg text-[var(--color-text)] hidden sm:inline">
-                            Lakshmi Saree Mandir
-                        </span>
-                    </Link>
+            {/* Sidebar */}
+            <aside
+                className={`
+                    fixed inset-y-0 left-0 z-50
+                    ${collapsed ? 'w-[68px]' : 'w-60'}
+                    bg-[var(--color-surface-elevated)] border-r border-[var(--color-border)]
+                    flex flex-col
+                    transition-all duration-200 ease-in-out
+                    ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+                `}
+            >
+                {/* Logo area */}
+                <div className="h-14 flex items-center justify-between px-4 border-b border-[var(--color-border)]">
+                    {!collapsed && (
+                        <Link to="/dashboard" className="font-semibold text-sm text-[var(--color-text)] truncate tracking-tight">
+                            Lakshmi Sarees
+                        </Link>
+                    )}
+                    <button
+                        onClick={() => setCollapsed(!collapsed)}
+                        className="hidden lg:flex p-1.5 rounded-md hover:bg-[var(--color-surface)] transition-colors"
+                        title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                    >
+                        <ChevronsLeft className={`w-4 h-4 text-[var(--color-text-muted)] transition-transform duration-200 ${collapsed ? 'rotate-180' : ''}`} />
+                    </button>
+                    <button
+                        onClick={() => setSidebarOpen(false)}
+                        className="lg:hidden p-1.5 rounded-md hover:bg-[var(--color-surface)] transition-colors"
+                    >
+                        <X className="w-5 h-5 text-[var(--color-text-muted)]" />
+                    </button>
+                </div>
 
-                    {/* Desktop Nav */}
-                    <nav className="hidden md:flex items-center gap-1">
-                        {navItems.map((item) => (
+                {/* Navigation */}
+                <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
+                    {navItems.map((item) => {
+                        const Icon = item.icon
+                        const active = isActive(item.path)
+                        return (
                             <Link
                                 key={item.path}
                                 to={item.path}
+                                onClick={() => setSidebarOpen(false)}
+                                title={collapsed ? item.label : undefined}
                                 className={`
-                                    px-4 py-2 rounded-lg font-medium text-sm transition-all
-                                    ${isActive(item.path)
-                                        ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
-                                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-border)]'
+                                    flex items-center gap-3 px-3 py-2 rounded-md text-[13px] font-medium transition-colors
+                                    ${active
+                                        ? 'bg-[var(--color-primary-light)] text-[var(--color-primary)]'
+                                        : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]'
                                     }
+                                    ${collapsed ? 'justify-center px-2' : ''}
                                 `}
                             >
-                                {item.label}
+                                <Icon className="w-[18px] h-[18px] flex-shrink-0" strokeWidth={active ? 2.5 : 2} />
+                                {!collapsed && <span>{item.label}</span>}
                             </Link>
-                        ))}
-                    </nav>
+                        )
+                    })}
+                </nav>
 
-                    {/* Right side */}
-                    <div className="flex items-center gap-3">
-                        <ThemeToggle />
-
-                        {/* User info */}
-                        <div className="hidden sm:flex items-center gap-3">
-                            <div className="text-right">
-                                <p className="text-sm font-medium text-[var(--color-text)]">
+                {/* User section */}
+                <div className="border-t border-[var(--color-border)] p-3">
+                    {!collapsed ? (
+                        <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-full bg-[var(--color-primary-light)] flex items-center justify-center text-xs font-semibold text-[var(--color-primary)]">
+                                {(profile?.full_name || profile?.username || 'U').charAt(0).toUpperCase()}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-[var(--color-text)] truncate">
                                     {profile?.full_name || profile?.username || 'User'}
                                 </p>
                                 <p className="text-xs text-[var(--color-text-muted)] capitalize">
@@ -76,78 +129,53 @@ export function Layout({ children }: { children: ReactNode }) {
                             </div>
                             <button
                                 onClick={handleLogout}
-                                className="px-3 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 text-sm font-medium transition-colors"
-                                title="Logout"
+                                className="p-1.5 rounded-md hover:bg-red-500/10 text-[var(--color-text-muted)] hover:text-red-500 transition-colors"
+                                title="Sign out"
                             >
-                                Logout
+                                <LogOut className="w-4 h-4" />
                             </button>
                         </div>
-
-                        {/* Mobile menu button */}
-                        <button
-                            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-                            className="md:hidden p-2 rounded-lg hover:bg-[var(--color-border)] transition-colors"
-                        >
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                {isMobileMenuOpen ? (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                                ) : (
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                                )}
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-
-                {/* Mobile menu */}
-                {isMobileMenuOpen && (
-                    <div className="md:hidden border-t border-[var(--color-border)] bg-[var(--color-surface-elevated)]">
-                        <nav className="p-4 flex flex-col gap-2">
-                            {/* User info on mobile */}
-                            <div className="mb-2 p-3 bg-[var(--color-surface)] rounded-lg">
-                                <p className="text-sm font-medium text-[var(--color-text)]">
-                                    {profile?.full_name || profile?.username || 'User'}
-                                </p>
-                                <p className="text-xs text-[var(--color-text-muted)] capitalize">
-                                    {profile?.role || 'User'}
-                                </p>
+                    ) : (
+                        <div className="flex flex-col items-center gap-2">
+                            <div className="w-8 h-8 rounded-full bg-[var(--color-primary-light)] flex items-center justify-center text-xs font-semibold text-[var(--color-primary)]">
+                                {(profile?.full_name || profile?.username || 'U').charAt(0).toUpperCase()}
                             </div>
-
-                            {navItems.map((item) => (
-                                <Link
-                                    key={item.path}
-                                    to={item.path}
-                                    onClick={() => setIsMobileMenuOpen(false)}
-                                    className={`
-                                        px-4 py-3 rounded-xl font-medium text-base transition-all flex items-center gap-3
-                                        ${isActive(item.path)
-                                            ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
-                                            : 'text-[var(--color-text)] hover:bg-[var(--color-border)]'
-                                        }
-                                    `}
-                                >
-                                    <span>{item.icon}</span>
-                                    {item.label}
-                                </Link>
-                            ))}
-
-                            {/* Logout button on mobile */}
                             <button
                                 onClick={handleLogout}
-                                className="mt-2 px-4 py-3 rounded-xl font-medium text-base bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 transition-colors flex items-center gap-3"
+                                className="p-1.5 rounded-md hover:bg-red-500/10 text-[var(--color-text-muted)] hover:text-red-500 transition-colors"
+                                title="Sign out"
                             >
-                                <span>🚪</span>
-                                Logout
+                                <LogOut className="w-4 h-4" />
                             </button>
-                        </nav>
-                    </div>
-                )}
-            </header>
+                        </div>
+                    )}
+                </div>
+            </aside>
 
-            {/* Main content */}
-            <main className="flex-1">
-                {children}
-            </main>
+            {/* Main content area */}
+            <div className={`flex-1 min-w-0 transition-all duration-200 ${collapsed ? 'lg:ml-[68px]' : 'lg:ml-60'}`}>
+                {/* Mobile header */}
+                <header className="sticky top-0 z-30 h-14 bg-[var(--color-surface-elevated)] border-b border-[var(--color-border)] flex items-center justify-between px-4 lg:hidden">
+                    <button
+                        onClick={() => setSidebarOpen(true)}
+                        className="p-2 rounded-md hover:bg-[var(--color-surface)] transition-colors"
+                    >
+                        <Menu className="w-5 h-5 text-[var(--color-text-muted)]" />
+                    </button>
+                    <span className="font-semibold text-sm text-[var(--color-text)]">Lakshmi Sarees</span>
+                    <ThemeToggle />
+                </header>
+
+                {/* Desktop top bar */}
+                <header className="hidden lg:flex sticky top-0 z-30 h-12 bg-[var(--color-surface)] border-b border-[var(--color-border)] items-center justify-end px-6">
+                    <ThemeToggle />
+                </header>
+
+                {/* Page content */}
+                <main>
+                    {children}
+                </main>
+            </div>
         </div>
     )
 }

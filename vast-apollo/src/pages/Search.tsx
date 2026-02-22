@@ -74,12 +74,12 @@ export function Search() {
                 </div>
 
                 {/* Filters */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 mb-6">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="font-medium text-[var(--color-text)]">Filters</h3>
                         <button
                             onClick={clearFilters}
-                            className="text-sm text-indigo-500 hover:underline"
+                            className="text-sm text-[var(--color-primary)] hover:underline"
                         >
                             Clear all
                         </button>
@@ -115,13 +115,12 @@ export function Search() {
                 {/* Results */}
                 {isLoading ? (
                     <div className="flex justify-center py-12">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="text-center py-12 bg-red-500/10 border border-red-500/30 rounded-xl">
-                        <p className="text-4xl mb-4">🔍</p>
-                        <p className="text-xl font-semibold text-red-500">Not Found!</p>
-                        <p className="text-[var(--color-text-muted)] mt-2">
+                    <div className="text-center py-12 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl">
+                        <p className="text-base font-medium text-[var(--color-text)]">No results found</p>
+                        <p className="text-sm text-[var(--color-text-muted)] mt-1">
                             No products match your search
                             {searchTerm && <span className="font-medium"> "{searchTerm}"</span>}
                         </p>
@@ -146,7 +145,7 @@ export function Search() {
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-mono text-sm font-bold text-indigo-500">{product.sku}</span>
+                                                <span className="font-mono text-sm font-bold text-[var(--color-accent-text)]">{product.sku}</span>
                                                 <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500">
                                                     Available
                                                 </span>

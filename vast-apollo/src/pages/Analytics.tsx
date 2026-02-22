@@ -122,7 +122,7 @@ export function Analytics() {
         return (
             <Layout>
                 <div className="min-h-[60vh] flex items-center justify-center">
-                    <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                    <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                 </div>
             </Layout>
         )
@@ -160,19 +160,19 @@ export function Analytics() {
                 {/* Stats Cards */}
                 {summary && (
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-5">
+                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
                             <p className="text-sm text-[var(--color-text-muted)] mb-1">Total Revenue</p>
                             <p className="text-2xl font-bold text-green-500">{formatCurrency(summary.total_sales)}</p>
                         </div>
-                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-5">
+                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
                             <p className="text-sm text-[var(--color-text-muted)] mb-1">Total Cost</p>
                             <p className="text-2xl font-bold text-red-500">{formatCurrency(summary.total_cost)}</p>
                         </div>
-                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-5">
+                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
                             <p className="text-sm text-[var(--color-text-muted)] mb-1">Net Profit</p>
-                            <p className="text-2xl font-bold text-indigo-500">{formatCurrency(summary.total_profit)}</p>
+                            <p className="text-2xl font-bold text-[var(--color-primary)]">{formatCurrency(summary.total_profit)}</p>
                         </div>
-                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-5">
+                        <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
                             <p className="text-sm text-[var(--color-text-muted)] mb-1">Profit Margin</p>
                             <p className="text-2xl font-bold text-[var(--color-text)]">{profitMargin}%</p>
                         </div>
@@ -182,7 +182,7 @@ export function Analytics() {
                 {/* Charts */}
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
                     {/* Revenue Chart */}
-                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-6">
+                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-5">
                         <h3 className="text-lg font-semibold text-[var(--color-text)] mb-4">Revenue Trend</h3>
                         <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
@@ -227,7 +227,7 @@ export function Analytics() {
                     </div>
 
                     {/* Profit Chart */}
-                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-6">
+                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-5">
                         <h3 className="text-lg font-semibold text-[var(--color-text)] mb-4">Daily Profit</h3>
                         <div className="h-64">
                             <ResponsiveContainer width="100%" height="100%">
@@ -252,7 +252,7 @@ export function Analytics() {
                                         }}
                                         formatter={(value) => value !== undefined ? [formatCurrency(Number(value)), 'Profit'] : null}
                                     />
-                                    <Bar dataKey="total_profit" fill="#6366f1" radius={[4, 4, 0, 0]} />
+                                    <Bar dataKey="total_profit" fill="#2563eb" radius={[4, 4, 0, 0]} />
                                 </BarChart>
                             </ResponsiveContainer>
                         </div>
@@ -260,7 +260,7 @@ export function Analytics() {
                 </div>
 
                 {/* Bill History */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl overflow-hidden">
                     <div className="p-4 border-b border-[var(--color-border)] flex flex-col sm:flex-row justify-between gap-4">
                         <h3 className="text-lg font-semibold text-[var(--color-text)]">Bill History</h3>
                         <div className="w-full sm:w-64">
@@ -286,7 +286,7 @@ export function Analytics() {
                             <tbody className="divide-y divide-[var(--color-border)]">
                                 {filteredBills.map((bill) => (
                                     <tr key={bill.id} className="hover:bg-[var(--color-border)]/20">
-                                        <td className="px-4 py-3 text-sm font-mono text-indigo-500">{bill.bill_number}</td>
+                                        <td className="px-4 py-3 text-sm font-mono text-[var(--color-accent-text)]">{bill.bill_number}</td>
                                         <td className="px-4 py-3 text-sm text-[var(--color-text)]">
                                             {bill.customer_name || '-'}
                                             {bill.customer_phone && (
@@ -319,14 +319,14 @@ export function Analytics() {
                                                     onClick={() => handleEditBill(bill)}
                                                     className="text-blue-500 hover:text-blue-600 text-sm"
                                                 >
-                                                    ✏️
+                                                    Edit
                                                 </button>
                                                 <button
                                                     onClick={() => handleDeleteBill(bill)}
                                                     className="text-red-500 hover:text-red-600 text-sm"
                                                     disabled={isDeleting}
                                                 >
-                                                    🗑️
+                                                    Del
                                                 </button>
                                             </div>
                                         </td>
@@ -364,12 +364,12 @@ export function Analytics() {
                                     <button
                                         key={method}
                                         onClick={() => setEditFormData({ ...editFormData, payment_method: method })}
-                                        className={`flex-1 py-2 rounded-xl font-medium capitalize transition-all ${editFormData.payment_method === method
-                                            ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                        className={`flex-1 py-2 rounded-lg font-medium capitalize transition-all ${editFormData.payment_method === method
+                                            ? 'bg-[var(--color-primary)] text-white'
                                             : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                             }`}
                                     >
-                                        {method === 'cash' && '💵 '}{method === 'card' && '💳 '}{method === 'upi' && '📱 '}{method}
+                                        {method}
                                     </button>
                                 ))}
                             </div>
@@ -385,7 +385,7 @@ export function Analytics() {
                                 Cancel
                             </Button>
                             <Button variant="primary" fullWidth onClick={handleUpdateBill}>
-                                💾 Save Changes
+                                Save Changes
                             </Button>
                         </div>
                     </div>

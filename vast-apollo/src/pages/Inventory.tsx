@@ -193,10 +193,10 @@ export function Inventory() {
                     <div className="flex gap-2">
 
                         <Button variant="secondary" onClick={() => setIsPurchaseModalOpen(true)}>
-                            📥 Stock In
+                            Stock In
                         </Button>
                         <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-                            + Add Product
+                            Add Product
                         </Button>
                     </div>
                 </div>
@@ -213,7 +213,7 @@ export function Inventory() {
                 {/* Products Grid */}
                 {isLoading ? (
                     <div className="flex justify-center py-12">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-12 h-12 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : filteredProducts.length === 0 ? (
                     <div className="text-center py-12">
@@ -224,7 +224,7 @@ export function Inventory() {
                         {filteredProducts.map((product) => (
                             <div
                                 key={product.id}
-                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer"
                                 onClick={() => setSelectedProduct(product)}
                             >
                                 <div className="flex flex-col gap-3">
@@ -317,9 +317,9 @@ export function Inventory() {
                                     <button
                                         type="button"
                                         onClick={() => dateInputRef.current?.showPicker()}
-                                        className="px-4 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors"
+                                        className="px-4 py-3 bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors text-sm"
                                     >
-                                        📅
+                                        Pick
                                     </button>
                                 </div>
                             </div>
@@ -365,7 +365,7 @@ export function Inventory() {
 
                         {/* Selling Prices Section */}
                         <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                            <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">💰 Selling Prices (₹)</h4>
+                            <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">Selling Prices</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <Input
                                     type="number"
@@ -483,7 +483,7 @@ export function Inventory() {
 
                             {/* Selling Prices */}
                             <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                                <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">💰 Selling Prices</h4>
+                                <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">Selling Prices</h4>
                                 <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">MRP</p>
@@ -522,7 +522,7 @@ export function Inventory() {
                                     setSelectedProduct(null)
                                 }}
                             >
-                                📊 View & Print Barcode
+                                View & Print Barcode
                             </Button>
 
                             <div className="flex gap-3 mt-3">
@@ -531,7 +531,7 @@ export function Inventory() {
                                     fullWidth
                                     onClick={() => handleEdit(selectedProduct)}
                                 >
-                                    ✏️ Edit
+                                    Edit
                                 </Button>
                                 <Button
                                     variant="secondary"
@@ -540,7 +540,7 @@ export function Inventory() {
                                     loading={isDeleting}
                                     className="!bg-red-500/10 !text-[var(--color-danger-text)] hover:!bg-red-500/20"
                                 >
-                                    🗑️ Delete
+                                    Delete
                                 </Button>
                             </div>
                         </div>
@@ -641,7 +641,7 @@ export function Inventory() {
                                     onClick={handleUpdate}
                                     loading={isSubmitting}
                                 >
-                                    💾 Save Changes
+                                    Save Changes
                                 </Button>
                             </div>
                         </div>

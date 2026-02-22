@@ -98,11 +98,10 @@ export function Users() {
                 {/* User List */}
                 {isLoading ? (
                     <div className="flex justify-center py-12">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : users.length === 0 ? (
                     <div className="text-center py-12">
-                        <p className="text-4xl mb-3">👥</p>
                         <p className="text-[var(--color-text-muted)]">No users found</p>
                     </div>
                 ) : (
@@ -113,7 +112,7 @@ export function Users() {
                                 className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 flex items-center justify-between"
                             >
                                 <div className="flex items-center gap-4">
-                                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 flex items-center justify-center text-white font-bold text-lg">
+                                    <div className="w-10 h-10 rounded-full bg-[var(--color-primary-light)] flex items-center justify-center text-[var(--color-primary)] font-semibold text-sm">
                                         {(user.full_name || user.email).charAt(0).toUpperCase()}
                                     </div>
                                     <div>
@@ -135,7 +134,7 @@ export function Users() {
                                         className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
                                         title="Remove User"
                                     >
-                                        🗑️
+                                        Del
                                     </button>
                                 </div>
                             </div>
@@ -179,45 +178,19 @@ export function Users() {
                                 Role
                             </label>
                             <div className="grid grid-cols-3 gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData({ ...formData, role: 'salesman' })}
-                                    className={`
-                    py-3 rounded-xl font-medium transition-all
-                    ${formData.role === 'salesman'
-                                            ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white'
+                                {(['salesman', 'accounting', 'founder'] as const).map((role) => (
+                                    <button
+                                        key={role}
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, role })}
+                                        className={`py-2.5 rounded-lg font-medium capitalize transition-all text-sm ${formData.role === role
+                                            ? 'bg-[var(--color-primary)] text-white'
                                             : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
-                                        }
-                  `}
-                                >
-                                    💼 Salesman
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData({ ...formData, role: 'accounting' })}
-                                    className={`
-                    py-3 rounded-xl font-medium transition-all
-                    ${formData.role === 'accounting'
-                                            ? 'bg-gradient-to-r from-green-500 to-emerald-500 text-white'
-                                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
-                                        }
-                  `}
-                                >
-                                    📊 Accounting
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setFormData({ ...formData, role: 'founder' })}
-                                    className={`
-                    py-3 rounded-xl font-medium transition-all
-                    ${formData.role === 'founder'
-                                            ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white'
-                                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
-                                        }
-                  `}
-                                >
-                                    👑 Founder
-                                </button>
+                                        }`}
+                                    >
+                                        {role}
+                                    </button>
+                                ))}
                             </div>
                         </div>
 

@@ -89,7 +89,6 @@ export function Purchases() {
                     </div>
                 ) : filteredBills.length === 0 ? (
                     <div className="text-center py-12">
-                        <p className="text-4xl mb-2">📋</p>
                         <p className="text-[var(--color-text-muted)]">
                             {filter ? 'No bills match your search' : 'No purchase bills yet'}
                         </p>
@@ -99,7 +98,7 @@ export function Purchases() {
                         {filteredBills.map((bill) => (
                             <div
                                 key={bill.id}
-                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer"
                                 onClick={() => handleBillClick(bill)}
                             >
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">

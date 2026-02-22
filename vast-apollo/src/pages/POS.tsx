@@ -231,8 +231,8 @@ export function POS() {
                             <button
                                 key={mode}
                                 onClick={() => handleModeSwitch(mode)}
-                                className={`flex-1 py-3 rounded-xl font-medium capitalize transition-all ${billingMode === mode
-                                    ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                className={`flex-1 py-2.5 rounded-lg font-medium capitalize transition-all ${billingMode === mode
+                                    ? 'bg-[var(--color-primary)] text-white'
                                     : 'bg-[var(--color-surface-elevated)] border border-[var(--color-border)] text-[var(--color-text)]'
                                     }`}
                             >
@@ -258,7 +258,7 @@ export function POS() {
                                 fullWidth
                                 onClick={() => printThermalReceipt(lastBill.billNumber, lastBill.total, lastBillData.items, lastBillData.customer, lastBillData.phone, lastBillData.payment)}
                             >
-                                🖨️ Print Receipt (MD80)
+                                Print Receipt (MD80)
                             </Button>
                         )}
                     </div>
@@ -273,7 +273,7 @@ export function POS() {
                 )}
 
                 {/* Scanner Section */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-6 mb-6">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-5 mb-6">
                     {isScanning ? (
                         <div>
                             <div id="qr-reader" className="mb-4 rounded-xl overflow-hidden" />
@@ -289,7 +289,7 @@ export function POS() {
                                 fullWidth
                                 onClick={startScanner}
                             >
-                                📷 Scan Barcode
+                                Scan Barcode
                             </Button>
 
                             <div className="relative">
@@ -316,15 +316,14 @@ export function POS() {
                 </div>
 
                 {/* Cart */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl overflow-hidden">
                     <div className="p-4 border-b border-[var(--color-border)]">
                         <h2 className="font-semibold text-[var(--color-text)]">Cart ({cart.length} items, {getTotalQuantity()} qty)</h2>
                     </div>
 
                     {cart.length === 0 ? (
                         <div className="p-8 text-center text-[var(--color-text-muted)]">
-                            <p className="text-4xl mb-2">🛒</p>
-                            <p>Scan items to add them here</p>
+                            <p className="text-sm">Scan items to add them here</p>
                         </div>
                     ) : (
                         <>
@@ -450,14 +449,11 @@ export function POS() {
                                         className={`
                       flex-1 py-3 rounded-xl font-medium capitalize transition-all
                       ${paymentMethod === method
-                                                ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                                ? 'bg-[var(--color-primary)] text-white'
                                                 : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                             }
                     `}
                                     >
-                                        {method === 'cash' && '💵 '}
-                                        {method === 'card' && '💳 '}
-                                        {method === 'upi' && '📱 '}
                                         {method}
                                     </button>
                                 ))}

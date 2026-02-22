@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button, Input } from '../components/ui'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
+import { Shield, ShoppingCart, BarChart3 } from 'lucide-react'
 
 export function LoginPage() {
     const [username, setUsername] = useState('')
@@ -30,7 +31,6 @@ export function LoginPage() {
                 return
             }
 
-            // Redirect will be handled by App.tsx based on role
             navigate(from || '/dashboard', { replace: true })
         } catch {
             setError('An unexpected error occurred')
@@ -47,53 +47,53 @@ export function LoginPage() {
 
             <div className="flex-1 flex items-center justify-center p-4">
                 <div className="w-full max-w-5xl">
-                    <div className="grid lg:grid-cols-2 gap-8 items-center">
-                        {/* Left Side - Branding & Role Info */}
+                    <div className="grid lg:grid-cols-2 gap-12 items-center">
+                        {/* Left Side - Branding */}
                         <div className="text-center lg:text-left">
-                            <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-4">
-                                <span className="text-4xl">🪔</span>
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-xl bg-[var(--color-primary)] mb-5">
+                                <span className="text-white font-bold text-xl">LS</span>
                             </div>
-                            <h1 className="text-3xl lg:text-4xl font-bold text-[var(--color-text)] mb-2">
+                            <h1 className="text-3xl lg:text-4xl font-bold text-[var(--color-text)] mb-2 tracking-tight">
                                 Lakshmi Saree Mandir
                             </h1>
-                            <p className="text-lg text-[var(--color-text-muted)] mb-8">
+                            <p className="text-base text-[var(--color-text-muted)] mb-10">
                                 Inventory & Billing Management System
                             </p>
 
                             {/* Role Access Information */}
-                            <div className="space-y-4 mt-8">
-                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                                            <span className="text-xl">👑</span>
+                            <div className="space-y-3">
+                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg p-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-[var(--color-primary-light)] flex items-center justify-center">
+                                            <Shield className="w-4 h-4 text-[var(--color-primary)]" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="font-semibold text-[var(--color-text)]">Founder</h3>
-                                            <p className="text-sm text-[var(--color-text-muted)]">Full access to all features</p>
+                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Founder</h3>
+                                            <p className="text-xs text-[var(--color-text-muted)]">Full access to all features</p>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                                            <span className="text-xl">💼</span>
+                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg p-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-blue-500/8 dark:bg-blue-400/10 flex items-center justify-center">
+                                            <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="font-semibold text-[var(--color-text)]">Salesman</h3>
-                                            <p className="text-sm text-[var(--color-text-muted)]">Access to Sales & Search only</p>
+                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Salesman</h3>
+                                            <p className="text-xs text-[var(--color-text-muted)]">Access to Sales & Search only</p>
                                         </div>
                                     </div>
                                 </div>
 
-                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4">
-                                    <div className="flex items-start gap-3">
-                                        <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                                            <span className="text-xl">📊</span>
+                                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg p-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-emerald-500/8 dark:bg-emerald-400/10 flex items-center justify-center">
+                                            <BarChart3 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="font-semibold text-[var(--color-text)]">Accounting</h3>
-                                            <p className="text-sm text-[var(--color-text-muted)]">Analytics, Reports & Inventory view</p>
+                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Accounting</h3>
+                                            <p className="text-xs text-[var(--color-text-muted)]">Analytics, Reports & Inventory view</p>
                                         </div>
                                     </div>
                                 </div>
@@ -102,13 +102,13 @@ export function LoginPage() {
 
                         {/* Right Side - Login Form */}
                         <div className="w-full">
-                            <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-8 shadow-xl">
-                                <h2 className="text-2xl font-bold text-[var(--color-text)] mb-2">Sign In</h2>
-                                <p className="text-[var(--color-text-muted)] mb-6">
+                            <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-8 shadow-lg">
+                                <h2 className="text-xl font-bold text-[var(--color-text)] mb-1">Sign In</h2>
+                                <p className="text-sm text-[var(--color-text-muted)] mb-6">
                                     Enter your credentials to access the system
                                 </p>
 
-                                <form onSubmit={handleSubmit} className="space-y-5">
+                                <form onSubmit={handleSubmit} className="space-y-4">
                                     <Input
                                         type="text"
                                         label="Username"
@@ -131,7 +131,7 @@ export function LoginPage() {
                                     />
 
                                     {error && (
-                                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-500 text-sm">
+                                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm">
                                             {error}
                                         </div>
                                     )}
