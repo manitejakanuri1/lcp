@@ -12,6 +12,7 @@ interface CartItem {
 
 export function POS() {
     const [billingMode, setBillingMode] = useState<'retail' | 'wholesale'>('retail')
+    const [customPrices, setCustomPrices] = useState<Record<string, number>>({})
     const [cart, setCart] = useState<CartItem[]>([])
     const [isScanning, setIsScanning] = useState(false)
     const [manualSku, setManualSku] = useState('')
@@ -103,11 +104,16 @@ export function POS() {
         if (mode !== billingMode) {
             setBillingMode(mode)
             setCart([])
+            setCustomPrices({})
         }
     }
 
     const getItemPrice = (product: Product) => {
-        return billingMode === 'retail' ? product.selling_price_a : product.selling_price_b
+        return customPrices[product.sku] ?? (billingMode === 'retail' ? product.selling_price_a : product.selling_price_b)
+    }
+
+    const updatePrice = (sku: string, price: number) => {
+        setCustomPrices({ ...customPrices, [sku]: price })
     }
 
     const removeFromCart = (sku: string) => {
@@ -187,6 +193,7 @@ export function POS() {
             // Success!
             setLastBill({ billNumber: bill.bill_number, total: bill.total_amount })
             setCart([])
+            setCustomPrices({})
             setCustomerName('')
             setCustomerPhone('')
             setIsCheckoutOpen(false)
@@ -330,9 +337,16 @@ export function POS() {
                                                 <p className="text-[var(--color-text)]">
                                                     {item.product.saree_name || 'Unnamed'} • {item.product.material}
                                                 </p>
-                                                <p className="text-xs text-[var(--color-text-muted)]">
-                                                    Stock: {item.product.quantity || 1} | Price: {formatCurrency(getItemPrice(item.product))}
-                                                </p>
+                                                <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+                                                    <span>Stock: {item.product.quantity || 1} | Price: ₹</span>
+                                                    <input
+                                                        type="number"
+                                                        value={getItemPrice(item.product)}
+                                                        onChange={(e) => updatePrice(item.product.sku, parseFloat(e.target.value) || 0)}
+                                                        className="w-20 h-6 text-center rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs"
+                                                        min="0"
+                                                    />
+                                                </div>
                                             </div>
                                             <button
                                                 onClick={() => removeFromCart(item.product.sku)}
