@@ -93,8 +93,9 @@ export function POS() {
             setCart([...cart, { product: data, quantity: 1 }])
             setManualSku('')
         } catch (err) {
-            setError('Error adding product to cart')
-            console.error(err)
+            const message = err instanceof Error ? err.message : 'Unknown error'
+            setError(`Error adding product: ${message}`)
+            console.error('addToCart error:', err)
         }
     }
 
