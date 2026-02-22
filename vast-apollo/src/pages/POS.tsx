@@ -11,6 +11,7 @@ interface CartItem {
 }
 
 export function POS() {
+    const [billingMode, setBillingMode] = useState<'retail' | 'wholesale'>('retail')
     const [cart, setCart] = useState<CartItem[]>([])
     const [isScanning, setIsScanning] = useState(false)
     const [manualSku, setManualSku] = useState('')
@@ -97,6 +98,17 @@ export function POS() {
         }
     }
 
+    const handleModeSwitch = (mode: 'retail' | 'wholesale') => {
+        if (mode !== billingMode) {
+            setBillingMode(mode)
+            setCart([])
+        }
+    }
+
+    const getItemPrice = (product: Product) => {
+        return billingMode === 'retail' ? product.selling_price_a : product.selling_price_b
+    }
+
     const removeFromCart = (sku: string) => {
         setCart(cart.filter(item => item.product.sku !== sku))
     }
@@ -111,7 +123,7 @@ export function POS() {
     }
 
     const getTotal = () => {
-        return cart.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0)
+        return cart.reduce((sum, item) => sum + getItemPrice(item.product) * item.quantity, 0)
     }
 
     const getTotalCost = () => {
@@ -152,7 +164,7 @@ export function POS() {
 
             const billItems = cart.map(item => ({
                 product_id: item.product.id,
-                selling_price: item.product.selling_price_a,
+                selling_price: getItemPrice(item.product),
                 cost_price: item.product.cost_price || 0,
                 quantity: item.quantity
             }))
@@ -201,6 +213,25 @@ export function POS() {
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-[var(--color-text)]">Point of Sale</h1>
                     <p className="text-[var(--color-text-muted)]">Scan product barcode to add to cart</p>
+                </div>
+
+                {/* Billing Mode Toggle */}
+                <div className="mb-6">
+                    <label className="block text-sm font-medium text-[var(--color-text)] mb-2">Billing Mode</label>
+                    <div className="flex gap-2">
+                        {(['retail', 'wholesale'] as const).map((mode) => (
+                            <button
+                                key={mode}
+                                onClick={() => handleModeSwitch(mode)}
+                                className={`flex-1 py-3 rounded-xl font-medium capitalize transition-all ${billingMode === mode
+                                    ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                    : 'bg-[var(--color-surface-elevated)] border border-[var(--color-border)] text-[var(--color-text)]'
+                                    }`}
+                            >
+                                {mode === 'retail' ? 'Retail (Price A)' : 'Wholesale (Price B)'}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Success Message */}
@@ -299,7 +330,7 @@ export function POS() {
                                                     {item.product.saree_name || 'Unnamed'} • {item.product.material}
                                                 </p>
                                                 <p className="text-xs text-[var(--color-text-muted)]">
-                                                    Stock: {item.product.quantity || 1} | Price: {formatCurrency(item.product.selling_price_a)}
+                                                    Stock: {item.product.quantity || 1} | Price: {formatCurrency(getItemPrice(item.product))}
                                                 </p>
                                             </div>
                                             <button
@@ -334,7 +365,7 @@ export function POS() {
                                                 </button>
                                             </div>
                                             <p className="font-semibold text-[var(--color-text)]">
-                                                {formatCurrency(item.product.selling_price_a * item.quantity)}
+                                                {formatCurrency(getItemPrice(item.product) * item.quantity)}
                                             </p>
                                         </div>
                                     </div>
