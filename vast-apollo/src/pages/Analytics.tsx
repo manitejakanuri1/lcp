@@ -20,6 +20,7 @@ export function Analytics() {
     const [dailySales, setDailySales] = useState<DailySale[]>([])
     const [recentBills, setRecentBills] = useState<Bill[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [dateRange, setDateRange] = useState({
         start: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         end: new Date().toISOString().split('T')[0]
@@ -32,6 +33,7 @@ export function Analytics() {
 
     const fetchData = async () => {
         setIsLoading(true)
+        setError(null)
         try {
             // Fetch analytics summary
             const summaryData = await analyticsApi.getSummary(dateRange.start, dateRange.end)
@@ -52,6 +54,7 @@ export function Analytics() {
             }
         } catch (err) {
             console.error('Error fetching analytics:', err)
+            setError('Failed to load analytics data. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -123,6 +126,24 @@ export function Analytics() {
             <Layout>
                 <div className="min-h-[60vh] flex items-center justify-center">
                     <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                </div>
+            </Layout>
+        )
+    }
+
+    if (error) {
+        return (
+            <Layout>
+                <div className="min-h-[60vh] flex items-center justify-center">
+                    <div className="text-center">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); fetchData(); }}
+                            className="px-4 py-2 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm text-[var(--color-text)]"
+                        >
+                            Retry
+                        </button>
+                    </div>
                 </div>
             </Layout>
         )

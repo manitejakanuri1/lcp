@@ -91,12 +91,27 @@ const authenticateToken = async (req, res, next) => {
                 return res.status(403).json({ error: 'Invalid token' });
             }
 
-            req.user = { id: user.id, email: user.email };
+            // Look up role from profiles so requireFounder works with Supabase tokens
+            const { data: profile } = await supabase
+                .from('profiles')
+                .select('role, username')
+                .eq('id', user.id)
+                .single();
+
+            req.user = { id: user.id, email: user.email, role: profile?.role, username: profile?.username };
             next();
         } catch (supabaseErr) {
             res.status(403).json({ error: 'Invalid token' });
         }
     }
+};
+
+// Founder-only authorization middleware (must be used after authenticateToken)
+const requireFounder = (req, res, next) => {
+    if (req.user?.role !== 'founder') {
+        return res.status(403).json({ error: 'Founder access required' });
+    }
+    next();
 };
 
 // ================== AUTH ROUTES ==================
@@ -161,8 +176,8 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// Register
-app.post('/api/auth/register', async (req, res) => {
+// Register (founder only)
+app.post('/api/auth/register', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { username, email, password, fullName, role } = req.body;
 
@@ -629,6 +644,54 @@ app.get('/api/vendor-bills/:id', async (req, res) => {
     }
 });
 
+// Update vendor bill
+app.put('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+    try {
+        const { company_name, bill_number, bill_date, vendor_gst_number, is_local_transaction, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate } = req.body;
+
+        const updateData = {};
+        if (company_name !== undefined) updateData.company_name = company_name;
+        if (bill_number !== undefined) updateData.bill_number = bill_number;
+        if (bill_date !== undefined) updateData.bill_date = bill_date;
+        if (vendor_gst_number !== undefined) updateData.vendor_gst_number = vendor_gst_number;
+        if (is_local_transaction !== undefined) updateData.is_local_transaction = is_local_transaction;
+        if (total_amount !== undefined) updateData.total_amount = total_amount;
+        if (gst_amount !== undefined) updateData.gst_amount = gst_amount;
+        if (cgst_rate !== undefined) updateData.cgst_rate = cgst_rate;
+        if (sgst_rate !== undefined) updateData.sgst_rate = sgst_rate;
+        if (igst_rate !== undefined) updateData.igst_rate = igst_rate;
+
+        const { data, error } = await supabase
+            .from('vendor_bills')
+            .update(updateData)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error('Error updating vendor bill:', err);
+        res.status(500).json({ error: 'Failed to update vendor bill' });
+    }
+});
+
+// Delete vendor bill (products cascade-deleted via FK)
+app.delete('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+    try {
+        const { error } = await supabase
+            .from('vendor_bills')
+            .delete()
+            .eq('id', req.params.id);
+
+        if (error) throw error;
+        res.json({ message: 'Vendor bill deleted' });
+    } catch (err) {
+        console.error('Error deleting vendor bill:', err);
+        res.status(500).json({ error: 'Failed to delete vendor bill' });
+    }
+});
+
 // ================== USERS ROUTES ==================
 
 app.get('/api/users', authenticateToken, async (req, res) => {
@@ -645,7 +708,7 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     }
 });
 
-app.put('/api/users/:id/role', authenticateToken, async (req, res) => {
+app.put('/api/users/:id/role', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { role } = req.body;
 
@@ -660,6 +723,52 @@ app.put('/api/users/:id/role', authenticateToken, async (req, res) => {
         res.json(data);
     } catch (err) {
         res.status(500).json({ error: 'Failed to update user role' });
+    }
+});
+
+// Reset user password (founder only)
+app.put('/api/users/:id/password', authenticateToken, requireFounder, async (req, res) => {
+    try {
+        const { password } = req.body;
+
+        if (!password || password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        const { error } = await supabase.auth.admin.updateUserById(req.params.id, {
+            password
+        });
+
+        if (error) throw error;
+        res.json({ message: 'Password updated successfully' });
+    } catch (err) {
+        console.error('Error resetting password:', err);
+        res.status(500).json({ error: 'Failed to reset password' });
+    }
+});
+
+// Update user profile (founder only)
+app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) => {
+    try {
+        const { full_name, role } = req.body;
+
+        const updateData = {};
+        if (full_name !== undefined) updateData.full_name = full_name;
+        if (role !== undefined) updateData.role = role;
+        updateData.updated_at = new Date().toISOString();
+
+        const { data, error } = await supabase
+            .from('profiles')
+            .update(updateData)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error('Error updating user:', err);
+        res.status(500).json({ error: 'Failed to update user' });
     }
 });
 

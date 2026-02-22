@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Layout } from '../components/layout/Layout'
+import { useAuth } from '../contexts/AuthContext'
 import { analyticsApi, type AnalyticsSummary, type DailySale } from '../lib/api'
-import { IndianRupee, TrendingUp, ShoppingBag, Package } from 'lucide-react'
+import { IndianRupee, TrendingUp, ShoppingBag, Package, ShoppingCart, ArrowRight } from 'lucide-react'
 import {
     AreaChart,
     Area,
@@ -16,15 +18,18 @@ import {
 } from 'recharts'
 
 export function Dashboard() {
+    const { isFounder, isSalesman } = useAuth()
     const [summary, setSummary] = useState<AnalyticsSummary | null>(null)
     const [dailySales, setDailySales] = useState<DailySale[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
 
     useEffect(() => {
         fetchData()
     }, [])
 
     const fetchData = async () => {
+        setError(null)
         try {
             const summaryData = await analyticsApi.getSummary()
             if (summaryData && summaryData.length > 0) {
@@ -37,6 +42,7 @@ export function Dashboard() {
             }
         } catch (err) {
             console.error('Error fetching dashboard data:', err)
+            setError('Failed to load dashboard data. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -96,6 +102,24 @@ export function Dashboard() {
         )
     }
 
+    if (error) {
+        return (
+            <Layout>
+                <div className="min-h-[60vh] flex items-center justify-center">
+                    <div className="text-center">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); setIsLoading(true); fetchData(); }}
+                            className="px-4 py-2 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm text-[var(--color-text)]"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            </Layout>
+        )
+    }
+
     return (
         <Layout>
             <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8">
@@ -103,6 +127,23 @@ export function Dashboard() {
                     <h1 className="text-xl font-bold text-[var(--color-text)]">Dashboard</h1>
                     <p className="text-sm text-[var(--color-text-muted)]">Overview of your business performance</p>
                 </div>
+
+                {/* Quick POS Access */}
+                {(isFounder || isSalesman) && (
+                    <Link
+                        to="/pos"
+                        className="flex items-center gap-4 bg-[var(--color-primary)] text-white rounded-xl p-4 mb-6 hover:opacity-90 transition-opacity group"
+                    >
+                        <div className="w-11 h-11 rounded-lg bg-white/20 flex items-center justify-center flex-shrink-0">
+                            <ShoppingCart className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm">Open POS</p>
+                            <p className="text-xs text-white/70">Start a new sale</p>
+                        </div>
+                        <ArrowRight className="w-5 h-5 text-white/60 group-hover:translate-x-0.5 transition-transform" />
+                    </Link>
+                )}
 
                 {/* Stats Grid */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

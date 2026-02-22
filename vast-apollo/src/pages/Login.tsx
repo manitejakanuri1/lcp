@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
 import { Button, Input } from '../components/ui'
 import { ThemeToggle } from '../components/ui/ThemeToggle'
@@ -13,9 +13,6 @@ export function LoginPage() {
 
     const { signIn } = useAuth()
     const navigate = useNavigate()
-    const location = useLocation()
-
-    const from = (location.state as { from?: { pathname: string } })?.from?.pathname
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -23,7 +20,7 @@ export function LoginPage() {
         setIsLoading(true)
 
         try {
-            const { error } = await signIn(username, password)
+            const { error, role } = await signIn(username, password)
 
             if (error) {
                 setError(error.message)
@@ -31,7 +28,9 @@ export function LoginPage() {
                 return
             }
 
-            navigate(from || '/dashboard', { replace: true })
+            // Always redirect based on role to avoid access denied issues
+            const defaultPath = role === 'salesman' ? '/pos' : '/dashboard'
+            navigate(defaultPath, { replace: true })
         } catch {
             setError('An unexpected error occurred')
             setIsLoading(false)

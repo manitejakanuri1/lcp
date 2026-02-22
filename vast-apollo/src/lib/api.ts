@@ -1,20 +1,34 @@
 // API Client - Calls backend server instead of Supabase directly
 // All sensitive keys stay on the server
 
+import { supabase } from './supabase'
+
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
 async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
+    // Get the current Supabase session token for auth
+    const { data: { session } } = await supabase.auth.getSession()
+    const token = session?.access_token
+
     const response = await fetch(`${API_BASE}${endpoint}`, {
         ...options,
         headers: {
             'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
             ...options.headers,
         },
         credentials: 'include', // Send cookies for auth
     });
+
+    // Auto sign-out on expired/invalid session
+    if (response.status === 401) {
+        await supabase.auth.signOut()
+        window.location.href = '/login'
+        throw new Error('Session expired')
+    }
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -149,7 +163,20 @@ export const vendorBillsApi = {
 
     getById: async (id: string) => {
         return request<VendorBill & { products: Product[] }>(`/vendor-bills/${id}`);
-    }
+    },
+
+    update: async (id: string, data: Partial<VendorBill>) => {
+        return request<VendorBill>(`/vendor-bills/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    delete: async (id: string) => {
+        return request<{ message: string }>(`/vendor-bills/${id}`, {
+            method: 'DELETE',
+        });
+    },
 };
 
 // ================== BILLS API ==================
@@ -261,6 +288,20 @@ export const usersApi = {
         return request<User>(`/users/${id}/role`, {
             method: 'PUT',
             body: JSON.stringify({ role }),
+        });
+    },
+
+    update: async (id: string, data: { full_name?: string; role?: string }) => {
+        return request<User>(`/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    resetPassword: async (id: string, password: string) => {
+        return request<{ message: string }>(`/users/${id}/password`, {
+            method: 'PUT',
+            body: JSON.stringify({ password }),
         });
     },
 };

@@ -29,16 +29,18 @@ export function Layout({ children }: { children: ReactNode }) {
         navigate('/login', { replace: true })
     }
 
-    const navItems = [
-        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-        { path: '/inventory', label: 'Inventory', icon: Package },
-        { path: '/purchases', label: 'Purchases', icon: FileText },
-        { path: '/sales-bills', label: 'Sales', icon: Receipt },
-        { path: '/pos', label: 'POS', icon: ShoppingCart },
-        { path: '/search', label: 'Search', icon: Search },
-        { path: '/analytics', label: 'Analytics', icon: BarChart3 },
-        { path: '/users', label: 'Users', icon: Users },
+    const allNavItems = [
+        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['founder', 'accounting'] },
+        { path: '/inventory', label: 'Inventory', icon: Package, roles: ['founder', 'accounting'] },
+        { path: '/purchases', label: 'Purchases', icon: FileText, roles: ['founder', 'accounting'] },
+        { path: '/sales-bills', label: 'Sales', icon: Receipt, roles: ['founder', 'accounting'] },
+        { path: '/pos', label: 'POS', icon: ShoppingCart, roles: ['founder', 'salesman'] },
+        { path: '/search', label: 'Search', icon: Search, roles: ['founder', 'salesman'] },
+        { path: '/analytics', label: 'Analytics', icon: BarChart3, roles: ['founder', 'accounting'] },
+        { path: '/users', label: 'Users', icon: Users, roles: ['founder'] },
     ]
+
+    const navItems = allNavItems.filter(item => !profile?.role || item.roles.includes(profile.role))
 
     const isActive = (path: string) => location.pathname === path
 
@@ -176,6 +178,17 @@ export function Layout({ children }: { children: ReactNode }) {
                     {children}
                 </main>
             </div>
+
+            {/* Mobile floating POS button */}
+            {(profile?.role === 'founder' || profile?.role === 'salesman') && location.pathname !== '/pos' && (
+                <Link
+                    to="/pos"
+                    className="fixed bottom-6 right-6 z-50 lg:hidden w-14 h-14 rounded-full bg-[var(--color-primary)] text-white shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
+                    aria-label="Open POS"
+                >
+                    <ShoppingCart className="w-6 h-6" />
+                </Link>
+            )}
         </div>
     )
 }

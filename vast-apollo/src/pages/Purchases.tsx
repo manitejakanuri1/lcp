@@ -6,20 +6,26 @@ import { vendorBillsApi, type VendorBill, type Product } from '../lib/api'
 export function Purchases() {
     const [bills, setBills] = useState<VendorBill[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState('')
     const [selectedBill, setSelectedBill] = useState<(VendorBill & { products: Product[] }) | null>(null)
     const [isDetailLoading, setIsDetailLoading] = useState(false)
+    const [isEditMode, setIsEditMode] = useState(false)
+    const [editFormData, setEditFormData] = useState<Partial<VendorBill>>({})
+    const [isDeleting, setIsDeleting] = useState(false)
 
     useEffect(() => {
         fetchBills()
     }, [])
 
     const fetchBills = async () => {
+        setError(null)
         try {
             const data = await vendorBillsApi.getAll()
             setBills(data || [])
         } catch (err) {
             console.error('Error fetching bills:', err)
+            setError('Failed to load purchase bills. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -34,6 +40,48 @@ export function Purchases() {
             console.error('Error fetching bill details:', err)
         } finally {
             setIsDetailLoading(false)
+        }
+    }
+
+    const handleEditBill = (e: React.MouseEvent, bill: VendorBill) => {
+        e.stopPropagation()
+        setEditFormData({
+            company_name: bill.company_name,
+            bill_number: bill.bill_number,
+            bill_date: bill.bill_date,
+            vendor_gst_number: bill.vendor_gst_number,
+            total_amount: bill.total_amount,
+            gst_amount: bill.gst_amount,
+        })
+        setSelectedBill(bill as VendorBill & { products: Product[] })
+        setIsEditMode(true)
+    }
+
+    const handleUpdateBill = async () => {
+        if (!selectedBill) return
+        try {
+            await vendorBillsApi.update(selectedBill.id, editFormData)
+            setIsEditMode(false)
+            setSelectedBill(null)
+            fetchBills()
+        } catch (err) {
+            console.error('Error updating bill:', err)
+            alert('Failed to update bill')
+        }
+    }
+
+    const handleDeleteBill = async (e: React.MouseEvent, bill: VendorBill) => {
+        e.stopPropagation()
+        if (!confirm(`Delete bill from "${bill.company_name}"? This will also delete all associated products and cannot be undone.`)) return
+        setIsDeleting(true)
+        try {
+            await vendorBillsApi.delete(bill.id)
+            fetchBills()
+        } catch (err) {
+            console.error('Error deleting bill:', err)
+            alert('Failed to delete bill')
+        } finally {
+            setIsDeleting(false)
         }
     }
 
@@ -87,6 +135,16 @@ export function Purchases() {
                     <div className="flex justify-center py-12">
                         <div className="w-12 h-12 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                     </div>
+                ) : error ? (
+                    <div className="text-center py-12">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); setIsLoading(true); fetchBills(); }}
+                            className="px-4 py-2 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm text-[var(--color-text)]"
+                        >
+                            Retry
+                        </button>
+                    </div>
                 ) : filteredBills.length === 0 ? (
                     <div className="text-center py-12">
                         <p className="text-[var(--color-text-muted)]">
@@ -121,13 +179,32 @@ export function Purchases() {
                                             </span>
                                         </div>
                                     </div>
-                                    <div className="text-right shrink-0">
-                                        <p className="font-bold text-lg text-[var(--color-text)]">
-                                            {formatCurrency(bill.total_amount)}
-                                        </p>
-                                        <p className="text-xs text-[var(--color-text-muted)]">
-                                            GST: {formatCurrency(bill.gst_amount)}
-                                        </p>
+                                    <div className="flex items-center gap-3">
+                                        <div className="text-right shrink-0">
+                                            <p className="font-bold text-lg text-[var(--color-text)]">
+                                                {formatCurrency(bill.total_amount)}
+                                            </p>
+                                            <p className="text-xs text-[var(--color-text-muted)]">
+                                                GST: {formatCurrency(bill.gst_amount)}
+                                            </p>
+                                        </div>
+                                        <div className="flex gap-1 shrink-0">
+                                            <button
+                                                onClick={(e) => handleEditBill(e, bill)}
+                                                className="p-1.5 rounded-lg hover:bg-blue-500/10 text-blue-500 transition-colors text-sm"
+                                                title="Edit"
+                                            >
+                                                Edit
+                                            </button>
+                                            <button
+                                                onClick={(e) => handleDeleteBill(e, bill)}
+                                                className="p-1.5 rounded-lg hover:bg-red-500/10 text-red-500 transition-colors text-sm"
+                                                title="Delete"
+                                                disabled={isDeleting}
+                                            >
+                                                Del
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -137,7 +214,7 @@ export function Purchases() {
 
                 {/* Bill Detail Modal */}
                 <Modal
-                    isOpen={!!selectedBill || isDetailLoading}
+                    isOpen={(!!selectedBill && !isEditMode) || isDetailLoading}
                     onClose={() => setSelectedBill(null)}
                     title="Bill Details"
                     size="lg"
@@ -239,6 +316,59 @@ export function Purchases() {
                             <Button variant="secondary" fullWidth onClick={() => setSelectedBill(null)}>
                                 Close
                             </Button>
+                        </div>
+                    )}
+                </Modal>
+
+                {/* Edit Bill Modal */}
+                <Modal
+                    isOpen={isEditMode}
+                    onClose={() => { setIsEditMode(false); setSelectedBill(null) }}
+                    title={`Edit Bill${selectedBill?.bill_number ? ` #${selectedBill.bill_number}` : ''}`}
+                >
+                    {selectedBill && (
+                        <div className="space-y-4">
+                            <Input
+                                label="Company Name"
+                                value={editFormData.company_name || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, company_name: e.target.value })}
+                            />
+                            <Input
+                                label="Bill Number"
+                                value={editFormData.bill_number || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, bill_number: e.target.value })}
+                            />
+                            <Input
+                                label="Bill Date"
+                                type="date"
+                                value={editFormData.bill_date || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, bill_date: e.target.value })}
+                            />
+                            <Input
+                                label="GST Number"
+                                value={editFormData.vendor_gst_number || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, vendor_gst_number: e.target.value })}
+                            />
+                            <Input
+                                label="Total Amount"
+                                type="number"
+                                value={editFormData.total_amount?.toString() || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, total_amount: parseFloat(e.target.value) || 0 })}
+                            />
+                            <Input
+                                label="GST Amount"
+                                type="number"
+                                value={editFormData.gst_amount?.toString() || ''}
+                                onChange={(e) => setEditFormData({ ...editFormData, gst_amount: parseFloat(e.target.value) || 0 })}
+                            />
+                            <div className="flex gap-3 pt-4">
+                                <Button variant="secondary" fullWidth onClick={() => { setIsEditMode(false); setSelectedBill(null) }}>
+                                    Cancel
+                                </Button>
+                                <Button variant="primary" fullWidth onClick={handleUpdateBill}>
+                                    Save Changes
+                                </Button>
+                            </div>
                         </div>
                     )}
                 </Modal>

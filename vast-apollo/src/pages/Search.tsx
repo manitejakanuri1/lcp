@@ -6,6 +6,7 @@ import { productsApi, type Product } from '../lib/api'
 export function Search() {
     const [products, setProducts] = useState<Product[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const [searchTerm, setSearchTerm] = useState('')
     const [filters, setFilters] = useState({
         vendor: '',
@@ -16,6 +17,7 @@ export function Search() {
 
     const fetchProducts = async () => {
         setIsLoading(true)
+        setError(null)
         try {
             const data = await productsApi.getAll({
                 status: 'available',
@@ -28,6 +30,7 @@ export function Search() {
             setProducts(data || [])
         } catch (err) {
             console.error('Error searching products:', err)
+            setError('Failed to search products. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -116,6 +119,16 @@ export function Search() {
                 {isLoading ? (
                     <div className="flex justify-center py-12">
                         <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : error ? (
+                    <div className="text-center py-12 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); fetchProducts(); }}
+                            className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm"
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : products.length === 0 ? (
                     <div className="text-center py-12 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl">

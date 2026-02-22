@@ -6,6 +6,7 @@ import { billsApi, type Bill } from '../lib/api'
 export function SalesBills() {
     const [bills, setBills] = useState<Bill[]>([])
     const [isLoading, setIsLoading] = useState(true)
+    const [error, setError] = useState<string | null>(null)
     const [filter, setFilter] = useState('')
     const [selectedBill, setSelectedBill] = useState<Bill | null>(null)
     const [isDetailLoading, setIsDetailLoading] = useState(false)
@@ -18,11 +19,13 @@ export function SalesBills() {
     }, [])
 
     const fetchBills = async () => {
+        setError(null)
         try {
             const data = await billsApi.getAll()
             setBills(data || [])
         } catch (err) {
             console.error('Error fetching bills:', err)
+            setError('Failed to load sales bills. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -160,6 +163,16 @@ export function SalesBills() {
                 {isLoading ? (
                     <div className="flex justify-center py-12">
                         <div className="w-12 h-12 border-4 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : error ? (
+                    <div className="text-center py-12">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); setIsLoading(true); fetchBills(); }}
+                            className="px-4 py-2 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm text-[var(--color-text)]"
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : filteredBills.length === 0 ? (
                     <div className="text-center py-12">

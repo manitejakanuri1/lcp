@@ -13,7 +13,7 @@ interface AuthContextType {
     isFounder: boolean
     isSalesman: boolean
     isAccounting: boolean
-    signIn: (username: string, password: string) => Promise<{ error: Error | null }>
+    signIn: (username: string, password: string) => Promise<{ error: Error | null; role: string | null }>
     signOut: () => Promise<void>
     refreshProfile: () => Promise<void>
 }
@@ -133,24 +133,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const signIn = async (username: string, password: string) => {
         try {
-            // First, find the user by username to get their email
-            const { data: profile, error: profileError } = await supabase
+            // First, find the user by username to get their email and role
+            const { data: profileData, error: profileError } = await supabase
                 .from('profiles')
-                .select('email')
+                .select('email, role')
                 .eq('username', username)
-                .single<{ email: string }>()
+                .single<{ email: string; role: string }>()
 
-            if (profileError || !profile) {
-                return { error: new Error('Invalid username or password') }
+            if (profileError || !profileData) {
+                return { error: new Error('Invalid username or password'), role: null }
             }
 
             const { error } = await supabase.auth.signInWithPassword({
-                email: profile.email,
+                email: profileData.email,
                 password
             })
-            return { error: error as Error | null }
+            return { error: error as Error | null, role: profileData.role }
         } catch (err) {
-            return { error: err as Error }
+            return { error: err as Error, role: null }
         }
     }
 

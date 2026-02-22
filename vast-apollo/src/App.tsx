@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { ThemeProvider } from './contexts/ThemeContext'
-import { AuthProvider } from './contexts/AuthContext'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ToastProvider } from './contexts/ToastContext'
 import { ProtectedRoute } from './components/ProtectedRoute'
 import { LoginPage } from './pages/Login'
@@ -111,11 +111,25 @@ function AppRoutes() {
         }
       />
 
-      {/* Default Routes */}
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
-      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+      {/* Default Routes - redirect based on role */}
+      <Route path="/" element={<RoleRedirect />} />
+      <Route path="*" element={<RoleRedirect />} />
     </Routes>
   )
+}
+
+function RoleRedirect() {
+  const { role, isLoading, user } = useAuth()
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[var(--color-surface)] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+      </div>
+    )
+  }
+  if (!user) return <Navigate to="/login" replace />
+  const target = role === 'salesman' ? '/pos' : '/dashboard'
+  return <Navigate to={target} replace />
 }
 
 function App() {
