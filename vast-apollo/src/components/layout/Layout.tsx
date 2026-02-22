@@ -15,6 +15,9 @@ import {
     Menu,
     X,
     ChevronsLeft,
+    Wallet,
+    FileSpreadsheet,
+    TrendingUp,
 } from 'lucide-react'
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -37,6 +40,9 @@ export function Layout({ children }: { children: ReactNode }) {
         { path: '/pos', label: 'POS', icon: ShoppingCart, roles: ['founder', 'salesman'] },
         { path: '/search', label: 'Search', icon: Search, roles: ['founder', 'salesman'] },
         { path: '/analytics', label: 'Analytics', icon: BarChart3, roles: ['founder', 'accounting'] },
+        { path: '/expenses', label: 'Expenses', icon: Wallet, roles: ['founder', 'accounting'] },
+        { path: '/gst-report', label: 'GST Report', icon: FileSpreadsheet, roles: ['founder', 'accounting'] },
+        { path: '/profit-loss', label: 'P&L', icon: TrendingUp, roles: ['founder', 'accounting'] },
         { path: '/users', label: 'Users', icon: Users, roles: ['founder'] },
     ]
 

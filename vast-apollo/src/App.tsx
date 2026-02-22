@@ -12,7 +12,10 @@ import {
   Analytics,
   Users,
   Purchases,
-  SalesBills
+  SalesBills,
+  Expenses,
+  GSTReport,
+  ProfitLoss
 } from './pages'
 
 /**
@@ -88,6 +91,33 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={['founder', 'accounting']}>
             <Analytics />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/expenses"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <Expenses />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/gst-report"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <GSTReport />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/profit-loss"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <ProfitLoss />
           </ProtectedRoute>
         }
       />

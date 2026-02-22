@@ -772,6 +772,254 @@ app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) =>
     }
 });
 
+// ================== EXPENSES ROUTES ==================
+
+// Get all expenses (with optional date range and category filter)
+app.get('/api/expenses', authenticateToken, async (req, res) => {
+    try {
+        const { startDate, endDate, category } = req.query;
+
+        let query = supabase.from('expenses').select('*');
+
+        if (startDate) query = query.gte('expense_date', startDate);
+        if (endDate) query = query.lte('expense_date', endDate);
+        if (category) query = query.eq('category', category);
+
+        const { data, error } = await query.order('expense_date', { ascending: false });
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error('Error fetching expenses:', err);
+        res.status(500).json({ error: 'Failed to fetch expenses' });
+    }
+});
+
+// Create expense
+app.post('/api/expenses', authenticateToken, async (req, res) => {
+    try {
+        const { category, description, amount, expense_date } = req.body;
+
+        const { data, error } = await supabase
+            .from('expenses')
+            .insert({
+                category,
+                description: description || null,
+                amount: parseFloat(amount),
+                expense_date: expense_date || new Date().toISOString().split('T')[0],
+                created_by: req.user.id
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (err) {
+        console.error('Error creating expense:', err);
+        res.status(500).json({ error: 'Failed to create expense' });
+    }
+});
+
+// Update expense (founder only)
+app.put('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
+    try {
+        const { category, description, amount, expense_date } = req.body;
+
+        const updateData = {};
+        if (category !== undefined) updateData.category = category;
+        if (description !== undefined) updateData.description = description;
+        if (amount !== undefined) updateData.amount = parseFloat(amount);
+        if (expense_date !== undefined) updateData.expense_date = expense_date;
+
+        const { data, error } = await supabase
+            .from('expenses')
+            .update(updateData)
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error('Error updating expense:', err);
+        res.status(500).json({ error: 'Failed to update expense' });
+    }
+});
+
+// Delete expense (founder only)
+app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
+    try {
+        const { error } = await supabase
+            .from('expenses')
+            .delete()
+            .eq('id', req.params.id);
+
+        if (error) throw error;
+        res.json({ message: 'Expense deleted' });
+    } catch (err) {
+        console.error('Error deleting expense:', err);
+        res.status(500).json({ error: 'Failed to delete expense' });
+    }
+});
+
+// ================== GST REPORT ROUTES ==================
+
+app.get('/api/reports/gst', authenticateToken, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Input GST from vendor_bills
+        let vendorQuery = supabase
+            .from('vendor_bills')
+            .select('bill_date, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate, is_local_transaction');
+
+        if (startDate) vendorQuery = vendorQuery.gte('bill_date', startDate);
+        if (endDate) vendorQuery = vendorQuery.lte('bill_date', endDate);
+
+        const { data: vendorBills, error: vendorError } = await vendorQuery;
+        if (vendorError) throw vendorError;
+
+        // Output GST from sales bills (5% GST on all in-store sales, local)
+        let salesQuery = supabase
+            .from('bills')
+            .select('created_at, total_amount');
+
+        if (startDate) salesQuery = salesQuery.gte('created_at', startDate);
+        if (endDate) salesQuery = salesQuery.lte('created_at', endDate + 'T23:59:59');
+
+        const { data: salesBills, error: salesError } = await salesQuery;
+        if (salesError) throw salesError;
+
+        // Aggregate by month
+        const monthlyData = {};
+
+        for (const vb of (vendorBills || [])) {
+            const month = vb.bill_date.substring(0, 7);
+            if (!monthlyData[month]) {
+                monthlyData[month] = {
+                    month,
+                    input_cgst: 0, input_sgst: 0, input_igst: 0, input_total: 0,
+                    output_cgst: 0, output_sgst: 0, output_igst: 0, output_total: 0,
+                    purchase_total: 0, sales_total: 0,
+                };
+            }
+            const m = monthlyData[month];
+            m.purchase_total += parseFloat(vb.total_amount) || 0;
+            if (vb.is_local_transaction) {
+                m.input_cgst += (parseFloat(vb.gst_amount) || 0) / 2;
+                m.input_sgst += (parseFloat(vb.gst_amount) || 0) / 2;
+            } else {
+                m.input_igst += parseFloat(vb.gst_amount) || 0;
+            }
+            m.input_total += parseFloat(vb.gst_amount) || 0;
+        }
+
+        for (const sb of (salesBills || [])) {
+            const month = sb.created_at.substring(0, 7);
+            if (!monthlyData[month]) {
+                monthlyData[month] = {
+                    month,
+                    input_cgst: 0, input_sgst: 0, input_igst: 0, input_total: 0,
+                    output_cgst: 0, output_sgst: 0, output_igst: 0, output_total: 0,
+                    purchase_total: 0, sales_total: 0,
+                };
+            }
+            const m = monthlyData[month];
+            const totalAmt = parseFloat(sb.total_amount) || 0;
+            const taxableValue = totalAmt / 1.05;
+            const gst = totalAmt - taxableValue;
+            m.sales_total += totalAmt;
+            m.output_cgst += gst / 2;
+            m.output_sgst += gst / 2;
+            m.output_total += gst;
+        }
+
+        const result = Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
+        res.json(result);
+    } catch (err) {
+        console.error('Error fetching GST report:', err);
+        res.status(500).json({ error: 'Failed to fetch GST report' });
+    }
+});
+
+// ================== PROFIT & LOSS ROUTES ==================
+
+app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+
+        // Sales data
+        let salesQuery = supabase
+            .from('bills')
+            .select('created_at, total_amount, total_cost');
+
+        if (startDate) salesQuery = salesQuery.gte('created_at', startDate);
+        if (endDate) salesQuery = salesQuery.lte('created_at', endDate + 'T23:59:59');
+
+        const { data: sales, error: salesError } = await salesQuery;
+        if (salesError) throw salesError;
+
+        // Expenses data
+        let expQuery = supabase
+            .from('expenses')
+            .select('expense_date, category, amount');
+
+        if (startDate) expQuery = expQuery.gte('expense_date', startDate);
+        if (endDate) expQuery = expQuery.lte('expense_date', endDate);
+
+        const { data: expenses, error: expError } = await expQuery;
+        if (expError) throw expError;
+
+        // Aggregate by month
+        const monthlyData = {};
+
+        for (const sale of (sales || [])) {
+            const month = sale.created_at.substring(0, 7);
+            if (!monthlyData[month]) {
+                monthlyData[month] = { month, revenue: 0, cogs: 0, expenses: 0, expense_breakdown: {} };
+            }
+            monthlyData[month].revenue += parseFloat(sale.total_amount) || 0;
+            monthlyData[month].cogs += parseFloat(sale.total_cost) || 0;
+        }
+
+        for (const exp of (expenses || [])) {
+            const month = exp.expense_date.substring(0, 7);
+            if (!monthlyData[month]) {
+                monthlyData[month] = { month, revenue: 0, cogs: 0, expenses: 0, expense_breakdown: {} };
+            }
+            monthlyData[month].expenses += parseFloat(exp.amount) || 0;
+            const cat = exp.category;
+            monthlyData[month].expense_breakdown[cat] =
+                (monthlyData[month].expense_breakdown[cat] || 0) + (parseFloat(exp.amount) || 0);
+        }
+
+        const months = Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
+
+        let totalRevenue = 0, totalCogs = 0, totalExpenses = 0;
+        for (const m of months) {
+            m.gross_profit = m.revenue - m.cogs;
+            m.net_profit = m.gross_profit - m.expenses;
+            totalRevenue += m.revenue;
+            totalCogs += m.cogs;
+            totalExpenses += m.expenses;
+        }
+
+        res.json({
+            months,
+            totals: {
+                revenue: totalRevenue,
+                cogs: totalCogs,
+                gross_profit: totalRevenue - totalCogs,
+                expenses: totalExpenses,
+                net_profit: totalRevenue - totalCogs - totalExpenses,
+            }
+        });
+    } catch (err) {
+        console.error('Error fetching P&L report:', err);
+        res.status(500).json({ error: 'Failed to fetch profit & loss report' });
+    }
+});
+
 // ================== BILL IMAGE UPLOAD & EXTRACTION ==================
 
 app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {

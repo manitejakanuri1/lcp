@@ -267,6 +267,104 @@ export const analyticsApi = {
     },
 };
 
+// ================== EXPENSES API ==================
+
+export interface Expense {
+    id: string;
+    category: 'Rent' | 'Salary' | 'Electricity' | 'Transport' | 'Packaging' | 'Miscellaneous';
+    description: string | null;
+    amount: number;
+    expense_date: string;
+    created_by: string | null;
+    created_at: string;
+}
+
+export const expensesApi = {
+    getAll: async (filters: { startDate?: string; endDate?: string; category?: string } = {}) => {
+        const params = new URLSearchParams();
+        if (filters.startDate) params.append('startDate', filters.startDate);
+        if (filters.endDate) params.append('endDate', filters.endDate);
+        if (filters.category) params.append('category', filters.category);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<Expense[]>(`/expenses${query}`);
+    },
+
+    create: async (expense: { category: string; description?: string; amount: number; expense_date: string }) => {
+        return request<Expense>('/expenses', {
+            method: 'POST',
+            body: JSON.stringify(expense),
+        });
+    },
+
+    update: async (id: string, expense: Partial<Expense>) => {
+        return request<Expense>(`/expenses/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(expense),
+        });
+    },
+
+    delete: async (id: string) => {
+        return request<{ message: string }>(`/expenses/${id}`, {
+            method: 'DELETE',
+        });
+    },
+};
+
+// ================== REPORTS API ==================
+
+export interface GSTMonthly {
+    month: string;
+    input_cgst: number;
+    input_sgst: number;
+    input_igst: number;
+    input_total: number;
+    output_cgst: number;
+    output_sgst: number;
+    output_igst: number;
+    output_total: number;
+    purchase_total: number;
+    sales_total: number;
+}
+
+export interface ProfitLossMonthly {
+    month: string;
+    revenue: number;
+    cogs: number;
+    gross_profit: number;
+    expenses: number;
+    net_profit: number;
+    expense_breakdown: Record<string, number>;
+}
+
+export interface ProfitLossReport {
+    months: ProfitLossMonthly[];
+    totals: {
+        revenue: number;
+        cogs: number;
+        gross_profit: number;
+        expenses: number;
+        net_profit: number;
+    };
+}
+
+export const reportsApi = {
+    getGST: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<GSTMonthly[]>(`/reports/gst${query}`);
+    },
+
+    getProfitLoss: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<ProfitLossReport>(`/reports/profit-loss${query}`);
+    },
+};
+
 // ================== USERS API ==================
 
 export interface User {
