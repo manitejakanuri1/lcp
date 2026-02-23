@@ -54,7 +54,14 @@ export function POS() {
 
             await scanner.start(
                 { facingMode: 'environment' },
-                { fps: 10, qrbox: { width: 300, height: 100 } },
+                {
+                    fps: 10,
+                    qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
+                        width: Math.min(viewfinderWidth - 40, 300),
+                        height: Math.min(viewfinderHeight - 40, 100),
+                    }),
+                    aspectRatio: 1.0,
+                },
                 (decodedText) => {
                     addToCart(decodedText)
                     scanner.stop().catch(console.error)
@@ -280,7 +287,7 @@ export function POS() {
                 <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-5 mb-6">
                     {isScanning ? (
                         <div>
-                            <div id="qr-reader" className="mb-4 rounded-xl overflow-hidden" />
+                            <div id="qr-reader" className="mb-4 rounded-xl overflow-hidden" style={{ minHeight: '300px' }} />
                             <Button variant="secondary" fullWidth onClick={stopScanner}>
                                 Cancel Scanning
                             </Button>
