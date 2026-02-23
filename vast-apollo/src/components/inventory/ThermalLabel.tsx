@@ -3,6 +3,7 @@ import type { Product } from '../../lib/api'
 /**
  * Print thermal labels (50mm × 30mm) for ATPOS MD80 80mm Bluetooth printer.
  * Opens a print dialog with labels sized for direct thermal printing.
+ * Also supports PDF download for mobile.
  */
 export function printThermalLabels(products: Product[], shopName: string = 'LAKSHMI SAREE MANDIR') {
     const printWindow = window.open('', '_blank')
@@ -12,7 +13,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
     }
 
     const labelsHtml = products.map((product, index) => `
-        <div class="label">
+        <div class="label" id="label-${index}">
             <div class="shop-name">${shopName}</div>
             <div class="barcode-container">
                 <svg id="barcode-${index}"></svg>
@@ -32,6 +33,8 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <head>
             <title>Thermal Labels</title>
             <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
+            <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>
+            <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><\/script>
             <style>
                 * {
                     margin: 0;
@@ -60,6 +63,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     justify-content: space-between;
                     page-break-after: always;
                     overflow: hidden;
+                    background: white;
                 }
 
                 .label:last-child {
@@ -164,11 +168,17 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                         margin-top: 4px;
                     }
 
-                    .print-btn {
-                        display: inline-block;
+                    .btn-row {
+                        display: flex;
+                        gap: 10px;
+                        justify-content: center;
                         margin-top: 10px;
+                        flex-wrap: wrap;
+                    }
+
+                    .print-btn, .pdf-btn {
+                        display: inline-block;
                         padding: 8px 24px;
-                        background: #6366f1;
                         color: white;
                         border: none;
                         border-radius: 6px;
@@ -176,8 +186,25 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                         cursor: pointer;
                     }
 
+                    .print-btn {
+                        background: #6366f1;
+                    }
+
                     .print-btn:hover {
                         background: #4f46e5;
+                    }
+
+                    .pdf-btn {
+                        background: #059669;
+                    }
+
+                    .pdf-btn:hover {
+                        background: #047857;
+                    }
+
+                    .pdf-btn:disabled {
+                        background: #9ca3af;
+                        cursor: wait;
                     }
                 }
 
@@ -196,7 +223,10 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
             <div class="print-header">
                 <h2>Thermal Labels (50mm x 30mm)</h2>
                 <p>${products.length} label${products.length > 1 ? 's' : ''} for ATPOS MD80</p>
-                <button class="print-btn" onclick="window.print()">Print Labels</button>
+                <div class="btn-row">
+                    <button class="print-btn" onclick="window.print()">Print Labels</button>
+                    <button class="pdf-btn" id="pdf-btn" onclick="downloadPDF()">Download PDF</button>
+                </div>
             </div>
 
             <div class="labels-container">
@@ -221,6 +251,44 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                         }
                     `).join('')}
                 };
+
+                async function downloadPDF() {
+                    var btn = document.getElementById('pdf-btn');
+                    btn.textContent = 'Generating...';
+                    btn.disabled = true;
+
+                    try {
+                        var { jsPDF } = window.jspdf;
+                        // 50mm x 30mm label size
+                        var pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [30, 50] });
+                        var labels = document.querySelectorAll('.label');
+                        var scale = 4; // High resolution
+
+                        for (var i = 0; i < labels.length; i++) {
+                            if (i > 0) pdf.addPage([30, 50], 'landscape');
+
+                            var canvas = await html2canvas(labels[i], {
+                                scale: scale,
+                                backgroundColor: '#ffffff',
+                                useCORS: true,
+                                logging: false,
+                                width: labels[i].offsetWidth,
+                                height: labels[i].offsetHeight
+                            });
+
+                            var imgData = canvas.toDataURL('image/png');
+                            pdf.addImage(imgData, 'PNG', 0, 0, 50, 30);
+                        }
+
+                        pdf.save('labels.pdf');
+                    } catch(e) {
+                        console.error('PDF generation error:', e);
+                        alert('Failed to generate PDF. Please try Print instead.');
+                    }
+
+                    btn.textContent = 'Download PDF';
+                    btn.disabled = false;
+                }
             <\/script>
         </body>
         </html>
