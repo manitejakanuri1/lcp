@@ -456,7 +456,7 @@ export function Inventory() {
                                         </div>
                                         <div className="bg-gradient-to-r from-red-500 to-red-600 text-white px-3 py-2 rounded-lg text-center">
                                             <p className="text-xs font-semibold">DISCOUNT</p>
-                                            <p className="text-xl font-bold">{selectedProduct.selling_price_a && selectedProduct.selling_price_b ? Math.round(((selectedProduct.selling_price_a - selectedProduct.selling_price_b) / selectedProduct.selling_price_a) * 100) : 0}% OFF</p>
+                                            <p className="text-xl font-bold">₹{selectedProduct.selling_price_b}</p>
                                         </div>
                                     </div>
                                 </div>
