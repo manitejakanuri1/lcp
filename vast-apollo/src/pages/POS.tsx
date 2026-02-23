@@ -120,7 +120,7 @@ export function POS() {
     }
 
     const getItemPrice = (product: Product) => {
-        return customPrices[product.sku] ?? (billingMode === 'retail' ? product.selling_price_a : product.selling_price_b)
+        return customPrices[product.sku] ?? (billingMode === 'retail' ? product.selling_price_b : product.selling_price_b)
     }
 
     const updatePrice = (sku: string, price: number) => {
