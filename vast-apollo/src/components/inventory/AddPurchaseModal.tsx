@@ -82,6 +82,16 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const handleItemChange = (index: number, field: keyof ProductEntry, value: any) => {
         const newItems = [...items]
         newItems[index] = { ...newItems[index], [field]: value }
+
+        // Auto-fill material to all items that still have empty material
+        if (field === 'material' && value) {
+            newItems.forEach((item, i) => {
+                if (i !== index && !item.material) {
+                    newItems[i] = { ...newItems[i], material: value }
+                }
+            })
+        }
+
         setItems(newItems)
     }
 
