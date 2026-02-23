@@ -75,8 +75,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         }, 5000) // 5 second timeout
 
-        // Get initial session
-        supabase.auth.getSession().then(async ({ data: { session } }) => {
+        // Get initial session with 3s timeout to prevent hanging
+        const sessionPromise = supabase.auth.getSession()
+        const timeoutPromise = new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('getSession timeout')), 3000)
+        )
+
+        Promise.race([sessionPromise, timeoutPromise]).then(async ({ data: { session } }) => {
             if (!mounted) return
 
             setSession(session)
