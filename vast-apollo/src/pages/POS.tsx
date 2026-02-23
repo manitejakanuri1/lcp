@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, billsApi, type Product } from '../lib/api'
-import { Html5QrcodeScanner, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import { printThermalReceipt } from '../components/ThermalReceipt'
 
 interface CartItem {
@@ -24,51 +24,54 @@ export function POS() {
     const [lastBill, setLastBill] = useState<{ billNumber: string; total: number } | null>(null)
     const [lastBillData, setLastBillData] = useState<{ items: CartItem[]; customer: string; phone: string; payment: string } | null>(null)
     const [error, setError] = useState('')
-    const scannerRef = useRef<Html5QrcodeScanner | null>(null)
+    const scannerRef = useRef<Html5Qrcode | null>(null)
 
     useEffect(() => {
         return () => {
             if (scannerRef.current) {
-                scannerRef.current.clear().catch(console.error)
+                scannerRef.current.stop().catch(console.error)
             }
         }
     }, [])
 
-    const startScanner = () => {
+    const startScanner = async () => {
+        setError('')
         setIsScanning(true)
-        setTimeout(() => {
-            const scanner = new Html5QrcodeScanner(
-                'qr-reader',
-                {
-                    fps: 10,
-                    qrbox: { width: 300, height: 100 },
-                    formatsToSupport: [
-                        Html5QrcodeSupportedFormats.CODE_128,
-                        Html5QrcodeSupportedFormats.CODE_39,
-                        Html5QrcodeSupportedFormats.EAN_13,
-                    ]
-                },
-                false
-            )
 
-            scanner.render(
+        // Wait for DOM to render the video container
+        await new Promise(r => setTimeout(r, 150))
+
+        try {
+            const scanner = new Html5Qrcode('qr-reader', {
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.EAN_13,
+                ],
+            })
+            scannerRef.current = scanner
+
+            await scanner.start(
+                { facingMode: 'environment' },
+                { fps: 10, qrbox: { width: 300, height: 100 } },
                 (decodedText) => {
                     addToCart(decodedText)
-                    scanner.clear()
+                    scanner.stop().catch(console.error)
+                    scannerRef.current = null
                     setIsScanning(false)
                 },
-                (error) => {
-                    console.log('QR scan error:', error)
-                }
+                () => {} // ignore per-frame errors
             )
-
-            scannerRef.current = scanner
-        }, 100)
+        } catch (err) {
+            console.error('Camera error:', err)
+            setError('Camera access denied. Please allow camera permission in your browser settings and try again.')
+            setIsScanning(false)
+        }
     }
 
     const stopScanner = () => {
         if (scannerRef.current) {
-            scannerRef.current.clear().catch(console.error)
+            scannerRef.current.stop().catch(console.error)
             scannerRef.current = null
         }
         setIsScanning(false)
