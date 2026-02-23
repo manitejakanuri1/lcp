@@ -447,7 +447,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     <Input
                                         label="Cost Code"
                                         value={item.cost_code || ''}
-                                        onChange={(e) => handleItemChange(index, 'cost_code', e.target.value)}
+                                        onChange={(e) => handleItemChange(index, 'cost_code', e.target.value.toUpperCase())}
                                         placeholder="e.g. CC-001"
                                     />
                                     <Input

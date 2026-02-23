@@ -134,7 +134,7 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                                     fontWeight: 'bold',
                                     color: '#000000',
                                     margin: 0
-                                }}>₹{product.selling_price_b}</p>
+                                }}>{product.selling_price_a && product.selling_price_b ? Math.round(((product.selling_price_a - product.selling_price_b) / product.selling_price_a) * 100) : 0}% OFF</p>
                             </div>
                         </div>
                     </div>

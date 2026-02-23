@@ -20,9 +20,9 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
             <div class="saree-name">${product.saree_name || ''}</div>
             <div class="prices">
                 <span class="price-mrp">MRP &#8377;${product.selling_price_a.toLocaleString('en-IN')}</span>
-                <span class="price-disc">DISC &#8377;${(product.selling_price_b || product.selling_price_a).toLocaleString('en-IN')}</span>
+                <span class="price-disc">DISC ${product.selling_price_a && product.selling_price_b ? Math.round(((product.selling_price_a - product.selling_price_b) / product.selling_price_a) * 100) : 0}%</span>
             </div>
-            ${product.cost_code ? `<div class="cost-code">Code: ${product.cost_code}</div>` : ''}
+            ${product.cost_code ? `<div class="cost-code">Code: ${product.cost_code.toUpperCase()}</div>` : ''}
         </div>
     `).join('')
 
