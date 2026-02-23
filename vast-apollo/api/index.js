@@ -39,29 +39,20 @@ const upload = multer({
     }
 });
 
-// Security middleware
-app.use(helmet());
-
-// Dynamic CORS based on environment
-const allowedOrigins = [
-    'http://localhost:5173',
-    'http://localhost:4173',
-    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
-    process.env.PRODUCTION_URL
-].filter(Boolean);
-
+// CORS must come BEFORE helmet to handle preflight OPTIONS correctly on mobile
 app.use(cors({
     origin: function (origin, callback) {
         // Allow requests with no origin (like mobile apps or curl requests)
         if (!origin) return callback(null, true);
-
-        if (allowedOrigins.some(allowed => origin.includes(allowed.replace('https://', '').replace('http://', '')))) {
-            callback(null, true);
-        } else {
-            callback(null, true); // For development, allow all. In production, use: callback(new Error('Not allowed by CORS'))
-        }
+        callback(null, true);
     },
     credentials: true
+}));
+
+// Security middleware — configured to not break CORS preflight
+app.use(helmet({
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    crossOriginOpenerPolicy: false,
 }));
 
 app.use(express.json());

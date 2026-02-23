@@ -13,8 +13,12 @@ async function request<T>(
     const { data: { session } } = await supabase.auth.getSession()
     const token = session?.access_token
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
     const response = await fetch(`${API_BASE}${endpoint}`, {
         ...options,
+        signal: controller.signal,
         headers: {
             'Content-Type': 'application/json',
             ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
@@ -22,6 +26,8 @@ async function request<T>(
         },
         credentials: 'include', // Send cookies for auth
     });
+
+    clearTimeout(timeoutId);
 
     // Auto sign-out on expired/invalid session
     if (response.status === 401) {
