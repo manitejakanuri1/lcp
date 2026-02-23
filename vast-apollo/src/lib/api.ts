@@ -5,13 +5,32 @@ import { supabase } from './supabase'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
+// Helper: get auth token with 3s timeout + localStorage fallback
+async function getAuthToken(): Promise<string | null> {
+    try {
+        const result = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        return result.data.session?.access_token || null;
+    } catch {
+        // Fallback: read token directly from localStorage
+        try {
+            const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+            if (key) {
+                const data = JSON.parse(localStorage.getItem(key) || '{}');
+                return data?.access_token || null;
+            }
+        } catch { /* ignore */ }
+        return null;
+    }
+}
+
 async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
-    // Get the current Supabase session token for auth
-    const { data: { session } } = await supabase.auth.getSession()
-    const token = session?.access_token
+    const token = await getAuthToken()
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
