@@ -1078,8 +1078,11 @@ Analyze this bill/invoice image and extract the following information in JSON fo
       "saree_name": "string (EXACT full product name/description as written on the bill line item, including design number, brand name, variant. e.g., D.NO.-2482 VASUNDRA PATTU-1, D.NO-118 KANJIVARAM SILK, FANCY GEORGETTE D-205)",
       "material": "string",
       "quantity": number,
-      "cost_price": number (per piece excluding GST),
-      "hsn_code": "string (6 or 8 digits)"
+      "cost_price": number (per piece excluding GST, use 0 if not shown on bill),
+      "hsn_code": "string (6 or 8 digits)",
+      "cost_code": "string (short 2-4 letter alphabetic code like OMV, LMP, OSV, OMP, NTV)",
+      "selling_price": number (discount/selling price per piece, NOT the MRP),
+      "discount_percent": number (discount percentage as a number, e.g. 30 for 30%)
     }
   ]
 }
@@ -1089,18 +1092,25 @@ Important extraction rules:
 2. gst_number: Must be exactly 15 characters, format ##XXXXX####X#X# (where # is digit, X is letter)
 3. bill_date: Convert any date format to YYYY-MM-DD
 4. is_local: Check if bill shows CGST+SGST (local/intrastate) or IGST (interstate)
-5. cost_price: Extract per-piece price BEFORE tax (if total is given, divide by quantity)
+5. cost_price: Extract per-piece price BEFORE tax (if total is given, divide by quantity). If cost price is not shown on the bill, use 0
 6. quantity: Number of pieces for each line item
 7. If multiple items, create separate entries in items array
 8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
+9. cost_code: Short alphabetic code (2-4 uppercase letters) often in a column labeled "Cost Code" or "Code". Examples: OMV, LMP, OSV, OMP, NTV
+10. selling_price: The discount/selling price per piece (this is NOT the MRP, it is the discounted selling price)
+11. discount_percent: The discount percentage as a number (e.g. 30 means 30%). Often in a column labeled "Discount %" or "Disc %"
 
-9. saree_name: VERY IMPORTANT - Copy the EXACT COMPLETE product name/description text from each line item on the bill. Include ALL details: design numbers (D.NO., D.NO-), brand names, variant numbers, series names. For example if the bill says "D.NO.-2482 VASUNDRA PATTU-1", the saree_name must be "D.NO.-2482 VASUNDRA PATTU-1" - do NOT shorten or summarize it.
+12. saree_name: VERY IMPORTANT - Copy the EXACT COMPLETE product name/description text from each line item on the bill. Include ALL details: design numbers (D.NO., D.NO-), brand names, variant numbers, series names. For example if the bill says "D.NO.-2482 VASUNDRA PATTU-1", the saree_name must be "D.NO.-2482 VASUNDRA PATTU-1" - do NOT shorten or summarize it.
 
 If any field is unclear or missing, use these defaults:
 - saree_name: Use the full text from the product description column on the bill
 - material: "Not specified"
 - hsn_code: "5407"
 - quantity: 1
+- cost_price: 0
+- cost_code: ""
+- selling_price: 0
+- discount_percent: 0
 
 CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap in markdown code blocks. Do NOT use \`\`\`json tags. Your response must be parseable directly as JSON.`;
 
@@ -1157,19 +1167,27 @@ CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap
             transaction: {
                 is_local: extractedData.transaction?.is_local ?? true
             },
-            items: (extractedData.items || []).map((item) => ({
-                saree_name: item.saree_name || 'Not specified',
-                material: item.material || 'Not specified',
-                quantity: parseInt(item.quantity) || 1,
-                cost_price: parseFloat(item.cost_price) || 0,
-                hsn_code: item.hsn_code || '5407',
-                // Auto-generate placeholders for required fields
-                color: '',
-                cost_code: '',
-                selling_price_a: 0,
-                selling_price_b: 0,
-                rack_location: ''
-            }))
+            items: (extractedData.items || []).map((item) => {
+                const discountPrice = parseFloat(item.selling_price) || 0;
+                const discountPct = parseFloat(item.discount_percent) || 0;
+                // Calculate MRP from discount price and percentage
+                const mrp = (discountPrice > 0 && discountPct > 0 && discountPct < 100)
+                    ? Math.round(discountPrice / (1 - discountPct / 100))
+                    : 0;
+                return {
+                    saree_name: item.saree_name || 'Not specified',
+                    material: item.material || 'Not specified',
+                    quantity: parseInt(item.quantity) || 1,
+                    cost_price: parseFloat(item.cost_price) || 0,
+                    hsn_code: item.hsn_code || '5407',
+                    color: '',
+                    cost_code: item.cost_code || '',
+                    selling_price_a: mrp,
+                    selling_price_b: discountPrice,
+                    discount_percent: discountPct,
+                    rack_location: ''
+                };
+            })
         };
 
         // 6. Return extracted data with storage reference

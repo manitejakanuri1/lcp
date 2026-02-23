@@ -482,6 +482,7 @@ export interface BillExtractedData {
         cost_code: string;
         selling_price_a: number;
         selling_price_b: number;
+        discount_percent?: number;
         rack_location: string;
     }>;
 }

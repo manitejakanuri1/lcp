@@ -130,7 +130,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 quantity: item.quantity,
                 rack_location: item.rack_location || ''
             })))
-            setDiscountPercents(extractedData.items.map(() => ''))
+            setDiscountPercents(extractedData.items.map(item =>
+                (item as any).discount_percent ? String((item as any).discount_percent) : ''
+            ))
         }
 
         // Hide upload section after successful extraction
