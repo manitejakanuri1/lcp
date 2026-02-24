@@ -5,6 +5,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  build: {
+    target: 'es2017',
+  },
   plugins: [
     react(),
     tailwindcss(),
