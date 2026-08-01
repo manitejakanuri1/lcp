@@ -110,6 +110,7 @@ export interface Product {
     rack_location: string | null;
     status: 'available' | 'sold';
     vendor_bill_id: string | null;
+    image_url?: string | null;    // Photo shown on the storefront (set after upload)
     created_at: string;
 }
 
@@ -168,6 +169,36 @@ export const productsApi = {
 
     delete: async (id: string) => {
         return request<{ message: string }>(`/products/${id}`, {
+            method: 'DELETE',
+        });
+    },
+
+    // Sends multipart/form-data, so it can't go through request() (which forces JSON)
+    uploadPhoto: async (id: string, file: File) => {
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        const token = await getAuthToken();
+        const headers: HeadersInit = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const response = await fetch(`${API_BASE}/products/${id}/photo`, {
+            method: 'POST',
+            headers,
+            body: formData,
+            credentials: 'include',
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Upload failed');
+        }
+
+        return response.json() as Promise<{ success: boolean; image_url: string; product: Product }>;
+    },
+
+    deletePhoto: async (id: string) => {
+        return request<{ success: boolean; product: Product }>(`/products/${id}/photo`, {
             method: 'DELETE',
         });
     },

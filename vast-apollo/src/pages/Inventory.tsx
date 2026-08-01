@@ -3,6 +3,7 @@ import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
+import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
 
@@ -512,6 +513,18 @@ export function Inventory() {
                                     </p>
                                 </div>
                             </div>
+
+                            {/* Photo shown on the storefront */}
+                            <ProductPhotoUpload
+                                productId={selectedProduct.id}
+                                currentImageUrl={selectedProduct.image_url ?? null}
+                                onPhotoChanged={(imageUrl) => {
+                                    setSelectedProduct({ ...selectedProduct, image_url: imageUrl })
+                                    setProducts((prev) => prev.map((p) =>
+                                        p.id === selectedProduct.id ? { ...p, image_url: imageUrl } : p
+                                    ))
+                                }}
+                            />
 
                             {/* Single Barcode Button */}
                             <Button

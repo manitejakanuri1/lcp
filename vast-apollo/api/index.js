@@ -1242,6 +1242,91 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) =
     }
 });
 
+// ================== PRODUCT PHOTOS ==================
+// Photos uploaded here land in the public `product-photos` bucket and the URL
+// is stored on products.image_url, which the storefront reads directly.
+
+app.post('/api/products/:id/photo', authenticateToken, upload.single('photo'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        if (!req.file.mimetype.startsWith('image/')) {
+            return res.status(400).json({ error: 'Only images can be used as product photos' });
+        }
+
+        const { id } = req.params;
+
+        const { data: product, error: productError } = await supabase
+            .from('products')
+            .select('id')
+            .eq('id', id)
+            .single();
+
+        if (productError || !product) {
+            return res.status(404).json({ error: 'Product not found' });
+        }
+
+        // .rotate() honours EXIF orientation so phone photos aren't sideways
+        const imageBuffer = await sharp(req.file.buffer)
+            .rotate()
+            .resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
+            .jpeg({ quality: 80 })
+            .toBuffer();
+
+        const fileName = `${id}/${Date.now()}.jpg`;
+
+        const { error: uploadError } = await supabase.storage
+            .from('product-photos')
+            .upload(fileName, imageBuffer, {
+                contentType: 'image/jpeg',
+                cacheControl: '3600',
+                upsert: true,
+            });
+
+        if (uploadError) {
+            console.error('Supabase storage error:', uploadError);
+            return res.status(500).json({ error: 'Failed to upload photo to storage' });
+        }
+
+        const { data: publicUrl } = supabase.storage
+            .from('product-photos')
+            .getPublicUrl(fileName);
+
+        const { data, error } = await supabase
+            .from('products')
+            .update({ image_url: publicUrl.publicUrl })
+            .eq('id', id)
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        res.json({ success: true, image_url: publicUrl.publicUrl, product: data });
+    } catch (error) {
+        console.error('Product photo upload error:', error);
+        res.status(500).json({ error: error.message || 'Failed to upload product photo' });
+    }
+});
+
+app.delete('/api/products/:id/photo', authenticateToken, async (req, res) => {
+    try {
+        const { data, error } = await supabase
+            .from('products')
+            .update({ image_url: null })
+            .eq('id', req.params.id)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json({ success: true, product: data });
+    } catch (error) {
+        console.error('Product photo delete error:', error);
+        res.status(500).json({ error: 'Failed to remove product photo' });
+    }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
