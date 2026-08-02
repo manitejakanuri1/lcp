@@ -4,7 +4,7 @@
     "outputDirectory": "dist",
     "functions": {
         "api/extract_bill.py": {
-            "memory": 3009,
+            "memory": 2048,
             "maxDuration": 300
         }
     },

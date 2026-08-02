@@ -1,13 +1,46 @@
 # Offline bill extraction for extract_bill.py. No API keys, no network at runtime —
 # the ONNX models are committed under api/ocr_models/.
 #
-# The headless OpenCV builds are deliberate: rapidocr and img2table both declare the
-# desktop builds, which need libGL.so.1. That library isn't present on the serverless
-# runtime, so importing cv2 there fails. Listing the headless wheels here makes them
-# win, and they expose the identical cv2 module.
-opencv-python-headless==5.0.0.93
+# This list is complete and pinned by hand, and the PIP_NO_DEPS=1 environment
+# variable is set on the Vercel project so pip installs exactly these and nothing
+# else. (pip rejects a bare --no-deps line inside a requirements file, so the env
+# var is the only way to get the same effect through Vercel's install step.)
+#
+# Left to resolve, pip installs FOUR OpenCV wheels: rapidocr asks for opencv-python,
+# img2table asks for opencv-contrib-python, and the headless builds arrive alongside
+# rather than instead of them. Each bundles ~80MB of its own .so files, which pushed
+# the function to 701MB against Vercel's 500MB limit.
+#
+# opencv-contrib-python-headless alone satisfies everything: contrib is a superset
+# of the base package, and headless drops the GUI libs that need libGL.so.1 —
+# absent on the serverless runtime, so the desktop builds fail to import there.
 opencv-contrib-python-headless==5.0.0.93
 
 rapidocr==3.9.2
 onnxruntime==1.28.0
 img2table==2.0.0
+
+# Transitive dependencies, resolved from the three roots above.
+antlr4-python3-runtime==4.9.3
+beautifulsoup4==4.15.0
+certifi==2026.7.22
+charset-normalizer==3.4.9
+colorlog==6.12.0
+flatbuffers==25.12.19
+idna==3.18
+numpy==2.5.1
+omegaconf==2.3.1
+packaging==26.2
+pillow==12.3.0
+protobuf==7.35.1
+pyclipper==1.4.0
+pypdfium2==5.12.1
+pyyaml==6.0.3
+requests==2.34.2
+shapely==2.1.2
+six==1.17.0
+soupsieve==2.9.1
+tqdm==4.70.0
+typing-extensions==4.16.0
+urllib3==2.7.0
+xlsxwriter==3.2.9
