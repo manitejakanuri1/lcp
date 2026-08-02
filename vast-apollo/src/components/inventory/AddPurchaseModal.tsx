@@ -1,7 +1,11 @@
 import { useState } from 'react'
 import { Button, Input, Modal } from '../ui'
-import { vendorBillsApi, type Product } from '../../lib/api'
+import { vendorBillsApi, productsApi, type Product, type BillExtractedData } from '../../lib/api'
 import { v4 as uuidv4 } from 'uuid'
+import { BillImageUpload } from './BillImageUpload'
+import { PhotoPicker } from './PhotoPicker'
+import { SAREE_CATEGORIES } from '../../lib/categories'
+import { printThermalLabels } from './ThermalLabel'
 
 interface AddPurchaseModalProps {
     isOpen: boolean
@@ -17,14 +21,13 @@ const INITIAL_PRODUCT: ProductEntry = {
     cost_code: '',
     selling_price_a: 0,
     selling_price_b: 0,
-    selling_price_c: 0,
     saree_name: '',
-    saree_type: '',
     material: '',
     color: '',
     hsn_code: '',
     quantity: 1,
-    rack_location: ''
+    rack_location: '',
+    saree_type: ''
 }
 
 export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModalProps) {
@@ -32,11 +35,23 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const [billNumber, setBillNumber] = useState('')
     const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0])
     const [items, setItems] = useState<ProductEntry[]>([{ ...INITIAL_PRODUCT }])
+    const [discountPercents, setDiscountPercents] = useState<string[]>([''])
+    // One slot per item, held until the products exist and have ids to upload against.
+    const [itemPhotos, setItemPhotos] = useState<(File | null)[]>([null])
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isUploadingPhotos, setIsUploadingPhotos] = useState(false)
+    const [failedPhotoSkus, setFailedPhotoSkus] = useState<string[]>([])
 
     // GST fields
     const [vendorGstNumber, setVendorGstNumber] = useState('')
     const [isLocalTransaction, setIsLocalTransaction] = useState(true)
+
+    // Bill upload section
+    const [showUploadSection, setShowUploadSection] = useState(true)
+
+    // Success state
+    const [saveSuccess, setSaveSuccess] = useState(false)
+    const [savedProducts, setSavedProducts] = useState<Product[]>([])
 
     // Calculate totals
     const subtotal = items.reduce((sum, item) => sum + (item.cost_price * item.quantity), 0)
@@ -46,6 +61,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const igstRate = isLocalTransaction ? 0 : 5.0
     const gstAmount = (subtotal * gstRate) / 100
     const totalAmount = subtotal + gstAmount
+    const photoCount = itemPhotos.filter(Boolean).length
+    const missingCategoryCount = items.filter((item) => !item.saree_type).length
 
     const generateSKU = () => {
         const shortUuid = uuidv4().split('-')[0].toUpperCase()
@@ -74,21 +91,101 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const handleItemChange = (index: number, field: keyof ProductEntry, value: any) => {
         const newItems = [...items]
         newItems[index] = { ...newItems[index], [field]: value }
+
+        // Auto-fill material to all items that still have empty material
+        if (field === 'material' && value) {
+            newItems.forEach((item, i) => {
+                if (i !== index && !item.material) {
+                    newItems[i] = { ...newItems[i], material: value }
+                }
+            })
+        }
+
+        // Same for the category: a scanned bill returns every row blank, and a bill is
+        // usually one kind of saree. Only blanks are filled, so a row set by hand stays.
+        if (field === 'saree_type' && value) {
+            newItems.forEach((item, i) => {
+                if (i !== index && !item.saree_type) {
+                    newItems[i] = { ...newItems[i], saree_type: value }
+                }
+            })
+        }
+
         setItems(newItems)
     }
 
     const addItem = () => {
         const lastItem = items[items.length - 1]
         setItems([...items, { ...lastItem, sku: '' }]) // Copy previous item but clear SKU
+        setDiscountPercents([...discountPercents, discountPercents[discountPercents.length - 1] || ''])
+        setItemPhotos([...itemPhotos, null]) // Never copy the photo — each saree is its own
     }
 
     const removeItem = (index: number) => {
         if (items.length === 1) return
         setItems(items.filter((_, i) => i !== index))
+        setDiscountPercents(discountPercents.filter((_, i) => i !== index))
+        setItemPhotos(itemPhotos.filter((_, i) => i !== index))
+    }
+
+    const setItemPhoto = (index: number, file: File | null) => {
+        setItemPhotos(itemPhotos.map((photo, i) => (i === index ? file : photo)))
+    }
+
+    const handleBillDataExtracted = (extractedData: BillExtractedData) => {
+        // Populate vendor fields
+        setCompanyName(extractedData.vendor.company_name)
+        setBillNumber(extractedData.vendor.bill_number)
+        setBillDate(extractedData.vendor.bill_date)
+        setVendorGstNumber(extractedData.vendor.gst_number)
+        setIsLocalTransaction(extractedData.transaction.is_local)
+
+        // Populate items
+        if (extractedData.items.length > 0) {
+            setItems(extractedData.items.map(item => ({
+                sku: '', // Will be auto-generated on save
+                cost_price: item.cost_price,
+                cost_code: item.cost_code || '',
+                selling_price_a: item.selling_price_a || 0,
+                selling_price_b: item.selling_price_b || 0,
+                saree_name: item.saree_name || 'Unnamed',
+                material: item.material,
+                color: item.color || '',
+                hsn_code: item.hsn_code || '',
+                quantity: item.quantity,
+                rack_location: item.rack_location || '',
+                // The bill doesn't say which website category a saree belongs to,
+                // so it stays blank and the form makes it a required choice.
+                saree_type: ''
+            })))
+            setDiscountPercents(extractedData.items.map(item =>
+                (item as any).discount_percent ? String((item as any).discount_percent) : ''
+            ))
+            // The bill scan replaces the item list wholesale, so photo slots restart too.
+            setItemPhotos(extractedData.items.map(() => null))
+        }
+
+        // Hide upload section after successful extraction
+        setShowUploadSection(false)
     }
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Checked here rather than with the `required` attribute: the item rows sit in a
+        // scrolling box, and the browser cannot show its validation bubble on a dropdown
+        // that is scrolled out of sight — the save button just appears to do nothing.
+        const missingCategory = items
+            .map((item, index) => (item.saree_type ? 0 : index + 1))
+            .filter(Boolean)
+        if (missingCategory.length > 0) {
+            alert(
+                `Choose a Website Category for item ${missingCategory.map((n) => `#${n}`).join(', ')}.\n\n` +
+                `Scroll up through the product list to find it.`
+            )
+            return
+        }
+
         setIsSubmitting(true)
 
         try {
@@ -99,13 +196,22 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 vendor_name: companyName, // Inherit from bill
                 purchase_date: billDate,
                 status: 'available' as const,
-                saree_name: item.saree_type, // Use saree_type as saree_name
+                saree_name: item.saree_name || 'Unnamed',
                 selling_price: item.selling_price_a, // Backward compatibility
                 selling_price_b: item.selling_price_b || item.selling_price_a, // Default to MRP
-                selling_price_c: item.selling_price_c || item.selling_price_a  // Default to MRP
+                cost_code: item.cost_code || null // Ensure cost_code is explicitly passed
             }))
 
-            await vendorBillsApi.create({
+            // Photos are keyed by SKU rather than list position: the products come back from
+            // a bulk insert, and matching on array order would silently put a photo on the
+            // wrong saree if that order ever shifted. SKUs are unique per item.
+            const photosBySku = new Map<string, File>()
+            productsToCreates.forEach((product, index) => {
+                const photo = itemPhotos[index]
+                if (photo) photosBySku.set(product.sku, photo)
+            })
+
+            const result = await vendorBillsApi.create({
                 company_name: companyName,
                 bill_number: billNumber,
                 bill_date: billDate,
@@ -118,25 +224,179 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 gst_amount: gstAmount
             }, productsToCreates)
 
+            const createdProducts: Product[] = result.products || []
+
+            // The bill is already saved at this point. A photo that fails must not throw,
+            // or the whole save would look like it failed — report the SKUs instead.
+            const failed: string[] = []
+            if (photosBySku.size > 0) {
+                setIsUploadingPhotos(true)
+                await Promise.all(
+                    createdProducts
+                        .filter((product) => photosBySku.has(product.sku))
+                        .map(async (product) => {
+                            try {
+                                await productsApi.uploadPhoto(product.id, photosBySku.get(product.sku)!)
+                            } catch (photoErr) {
+                                console.error(`Photo upload failed for ${product.sku}:`, photoErr)
+                                failed.push(product.sku)
+                            }
+                        })
+                )
+                setIsUploadingPhotos(false)
+            }
+
+            // Store saved products and show success screen
+            setSavedProducts(createdProducts)
+            setFailedPhotoSkus(failed)
+            setSaveSuccess(true)
             onSuccess()
-            onClose()
-            // Reset form
-            setCompanyName('')
-            setBillNumber('')
-            setVendorGstNumber('')
-            setIsLocalTransaction(true)
-            setItems([{ ...INITIAL_PRODUCT }])
         } catch (err) {
             console.error('Error creating purchase:', err)
             alert('Failed to save purchase bill')
         } finally {
             setIsSubmitting(false)
+            setIsUploadingPhotos(false)
         }
     }
 
+    const handleClose = () => {
+        // Reset everything
+        setSaveSuccess(false)
+        setSavedProducts([])
+        setItemPhotos([null])
+        setFailedPhotoSkus([])
+        setCompanyName('')
+        setBillNumber('')
+        setVendorGstNumber('')
+        setIsLocalTransaction(true)
+        setItems([{ ...INITIAL_PRODUCT }])
+        setDiscountPercents([''])
+        setShowUploadSection(true)
+        onClose()
+    }
+
+    const handlePrintThermalLabels = () => {
+        if (savedProducts.length > 0) {
+            printThermalLabels(savedProducts)
+        }
+    }
+
+    // Success screen after save
+    if (saveSuccess) {
+        const totalLabels = savedProducts.length
+
+        return (
+            <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
+                <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                    {/* Success Icon */}
+                    <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center">
+                        <svg className="w-10 h-10 text-[var(--color-success-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+
+                    {/* Success Message */}
+                    <div className="text-center">
+                        <h3 className="text-xl font-bold text-[var(--color-text)]">
+                            {totalLabels} products saved successfully!
+                        </h3>
+                        <p className="text-[var(--color-text-muted)] mt-1">
+                            Bill #{billNumber} from {companyName}
+                        </p>
+                    </div>
+
+                    {/* The bill saved fine, so this is a warning rather than a failure */}
+                    {failedPhotoSkus.length > 0 && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 w-full max-w-sm text-center">
+                            <p className="text-sm font-medium text-[var(--color-text)]">
+                                {failedPhotoSkus.length} photo{failedPhotoSkus.length > 1 ? 's' : ''} could not be uploaded
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] mt-1 font-mono break-words">
+                                {failedPhotoSkus.join(', ')}
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] mt-2">
+                                The products were saved. Open each one in Inventory to add its photo.
+                            </p>
+                        </div>
+                    )}
+
+                    {/* Label Info */}
+                    <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 w-full max-w-sm text-center">
+                        <p className="text-sm text-[var(--color-text-muted)]">
+                            {totalLabels} thermal label{totalLabels > 1 ? 's' : ''} ready to print
+                        </p>
+                        <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                            50mm × 30mm — ATPOS MD80
+                        </p>
+                    </div>
+
+                    {/* Thermal Labels Button */}
+                    <button
+                        type="button"
+                        onClick={handlePrintThermalLabels}
+                        className="flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg hover:shadow-xl active:scale-95"
+                    >
+                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
+                        </svg>
+                        Print Labels MD80 ({totalLabels})
+                    </button>
+
+                    {/* Close Button */}
+                    <Button type="button" variant="secondary" onClick={handleClose}>
+                        Close
+                    </Button>
+                </div>
+            </Modal>
+        )
+    }
+
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="📥 Stock In (Receive Purchase)" size="lg">
+        <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
             <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Bill Image Upload Section */}
+                {showUploadSection && (
+                    <div className="bg-gradient-to-br from-indigo-500/10 to-purple-500/10 p-4 rounded-xl border border-indigo-500/30">
+                        <div className="flex items-start justify-between mb-3">
+                            <div>
+                                <h3 className="font-semibold text-[var(--color-text)] flex items-center gap-2">
+                                    <svg className="w-5 h-5 text-[var(--color-accent-text)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                    Quick Fill from Bill Image
+                                </h3>
+                                <p className="text-xs text-[var(--color-text-muted)] mt-1">
+                                    Upload a photo of your vendor bill to auto-fill details below
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setShowUploadSection(false)}
+                                className="text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
+                            >
+                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <BillImageUpload onDataExtracted={handleBillDataExtracted} />
+                    </div>
+                )}
+
+                {!showUploadSection && (
+                    <button
+                        type="button"
+                        onClick={() => setShowUploadSection(true)}
+                        className="w-full bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 rounded-xl p-3 text-sm text-[var(--color-accent-text)] font-medium transition-colors flex items-center justify-center gap-2"
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Upload Bill Image to Auto-Fill
+                    </button>
+                )}
+
                 {/* Bill Header */}
                 <div className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)]">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
@@ -213,19 +473,18 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             <div key={index} className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)] relative">
                                 <span className="absolute top-2 right-2 text-xs font-mono text-[var(--color-text-muted)]">#{index + 1}</span>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
                                     <Input
-                                        label="Saree Type"
-                                        value={item.saree_type}
-                                        onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
+                                        label="Saree Name"
+                                        value={item.saree_name}
+                                        onChange={(e) => handleItemChange(index, 'saree_name', e.target.value)}
                                         required
-                                        placeholder="Type"
+                                        placeholder="Full name"
                                     />
                                     <Input
-                                        label="Material"
-                                        value={item.material}
+                                        label="Material (optional)"
+                                        value={item.material || ''}
                                         onChange={(e) => handleItemChange(index, 'material', e.target.value)}
-                                        required
                                         placeholder="Material"
                                     />
                                     <Input
@@ -237,7 +496,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
                                     <Input
                                         label="Cost Price (₹)"
                                         type="number"
@@ -256,29 +515,86 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         label="Discount Price (₹)"
                                         type="number"
                                         value={item.selling_price_b.toString()}
-                                        onChange={(e) => handleItemChange(index, 'selling_price_b', parseFloat(e.target.value) || 0)}
+                                        onChange={(e) => {
+                                            const discPrice = parseFloat(e.target.value) || 0
+                                            const pct = parseFloat(discountPercents[index])
+                                            const newItems = [...items]
+                                            newItems[index] = { ...newItems[index], selling_price_b: discPrice }
+                                            if (discPrice > 0 && pct > 0 && pct < 100) {
+                                                newItems[index].selling_price_a = Math.round(discPrice / (1 - pct / 100))
+                                            }
+                                            setItems(newItems)
+                                        }}
                                     />
                                     <Input
-                                        label="Price C (₹)"
+                                        label="Disc %"
                                         type="number"
-                                        value={item.selling_price_c.toString()}
-                                        onChange={(e) => handleItemChange(index, 'selling_price_c', parseFloat(e.target.value) || 0)}
+                                        value={discountPercents[index] || ''}
+                                        onChange={(e) => {
+                                            const pct = e.target.value
+                                            const newPercents = [...discountPercents]
+                                            newPercents[index] = pct
+                                            setDiscountPercents(newPercents)
+                                            const discPrice = item.selling_price_b
+                                            if (discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                                const newItems = [...items]
+                                                newItems[index] = { ...newItems[index], selling_price_a: Math.round(discPrice / (1 - parseFloat(pct) / 100)) }
+                                                setItems(newItems)
+                                            }
+                                        }}
+                                        min="0"
+                                        max="99"
+                                        step="0.1"
+                                        placeholder="%"
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 gap-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    <Input
+                                        label="Cost Code"
+                                        value={item.cost_code || ''}
+                                        onChange={(e) => handleItemChange(index, 'cost_code', e.target.value.toUpperCase())}
+                                        placeholder="e.g. CC-001"
+                                    />
                                     <Input
                                         label="HSN Code"
                                         value={item.hsn_code || ''}
                                         onChange={(e) => handleItemChange(index, 'hsn_code', e.target.value)}
                                     />
+                                    {/* Decides where this saree sits on the website */}
+                                    <div className="w-full">
+                                        <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                            Website Category
+                                        </label>
+                                        <select
+                                            value={item.saree_type || ''}
+                                            onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
+                                            className={`w-full px-4 py-3 text-base bg-[var(--color-surface)] border rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
+                                                item.saree_type ? 'border-[var(--color-border)]' : 'border-amber-500'
+                                            }`}
+                                        >
+                                            <option value="">Select…</option>
+                                            {SAREE_CATEGORIES.map((c) => (
+                                                <option key={c.id} value={c.id}>{c.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div className="flex items-end">
                                         {items.length > 1 && (
-                                            <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-red-500 !bg-red-500/10 w-full">
+                                            <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-[var(--color-danger-text)] !bg-red-500/10 w-full">
                                                 Remove
                                             </Button>
                                         )}
                                     </div>
+                                </div>
+
+                                {/* Uploaded against this saree once the bill is saved */}
+                                <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                                    <PhotoPicker
+                                        file={itemPhotos[index] || null}
+                                        onChange={(file) => setItemPhoto(index, file)}
+                                        disabled={isSubmitting || isUploadingPhotos}
+                                    />
                                 </div>
                             </div>
                         ))}
@@ -313,18 +629,31 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             )}
                             <div className="col-span-2 border-t border-indigo-500/30 mt-2 pt-2 flex justify-between">
                                 <span className="font-semibold text-[var(--color-text)]">Total Amount:</span>
-                                <span className="font-bold text-lg text-indigo-500">₹{totalAmount.toFixed(2)}</span>
+                                <span className="font-bold text-lg text-[var(--color-accent-text)]">₹{totalAmount.toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
 
+                    {/* Says why the save is blocked, instead of the button looking dead */}
+                    {missingCategoryCount > 0 && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm text-[var(--color-text)]">
+                            {missingCategoryCount} product{missingCategoryCount > 1 ? 's' : ''} still need
+                            {missingCategoryCount > 1 ? '' : 's'} a <strong>Website Category</strong>. Pick one on any
+                            row and the rest fill in automatically.
+                        </div>
+                    )}
+
                     {/* Action Buttons */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
-                        <Button type="button" variant="secondary" onClick={onClose}>
+                        <Button type="button" variant="secondary" onClick={handleClose}>
                             Cancel
                         </Button>
-                        <Button type="submit" variant="primary" loading={isSubmitting}>
-                            💾 Save Purchase Bill
+                        <Button type="submit" variant="primary" loading={isSubmitting || isUploadingPhotos}>
+                            {isUploadingPhotos
+                                ? 'Uploading photos…'
+                                : photoCount > 0
+                                    ? `💾 Save Bill + ${photoCount} Photo${photoCount > 1 ? 's' : ''}`
+                                    : '💾 Save Purchase Bill'}
                         </Button>
                     </div>
                 </div>

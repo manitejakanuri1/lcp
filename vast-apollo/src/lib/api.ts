@@ -1,20 +1,59 @@
 // API Client - Calls backend server instead of Supabase directly
 // All sensitive keys stay on the server
 
-const API_BASE = 'http://localhost:3001/api';
+import { supabase } from './supabase'
+
+const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+// Helper: get auth token with 3s timeout + localStorage fallback
+async function getAuthToken(): Promise<string | null> {
+    try {
+        const result = await Promise.race([
+            supabase.auth.getSession(),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
+        ]);
+        return result.data.session?.access_token || null;
+    } catch {
+        // Fallback: read token directly from localStorage
+        try {
+            const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+            if (key) {
+                const data = JSON.parse(localStorage.getItem(key) || '{}');
+                return data?.access_token || null;
+            }
+        } catch { /* ignore */ }
+        return null;
+    }
+}
 
 async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
+    const token = await getAuthToken()
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+
     const response = await fetch(`${API_BASE}${endpoint}`, {
         ...options,
+        signal: controller.signal,
         headers: {
             'Content-Type': 'application/json',
+            ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
             ...options.headers,
         },
         credentials: 'include', // Send cookies for auth
     });
+
+    clearTimeout(timeoutId);
+
+    // Auto sign-out on expired/invalid session
+    if (response.status === 401) {
+        await supabase.auth.signOut()
+        window.location.href = '/login'
+        throw new Error('Session expired')
+    }
 
     if (!response.ok) {
         const error = await response.json().catch(() => ({ error: 'Request failed' }));
@@ -27,17 +66,17 @@ async function request<T>(
 // ================== AUTH API ==================
 
 export const authApi = {
-    login: async (email: string, password: string) => {
+    login: async (username: string, password: string) => {
         return request<{ user: User }>('/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ email, password }),
+            body: JSON.stringify({ username, password }),
         });
     },
 
-    register: async (email: string, password: string, fullName: string, role: string) => {
+    register: async (username: string, email: string, password: string, fullName: string, role: string) => {
         return request<{ message: string }>('/auth/register', {
             method: 'POST',
-            body: JSON.stringify({ email, password, fullName, role }),
+            body: JSON.stringify({ username, email, password, fullName, role }),
         });
     },
 
@@ -64,15 +103,15 @@ export interface Product {
     cost_code: string | null;     // Cost code for reference
     selling_price_a: number;  // Regular price
     selling_price_b: number;  // Discount tier B
-    selling_price_c: number;  // Discount tier C
     saree_name: string;       // Name of saree
-    saree_type: string;
-    material: string;
+    material: string | null;  // Optional — the website category is now chosen explicitly
     color: string | null;
     quantity: number;         // Number of sarees
     rack_location: string | null;
     status: 'available' | 'sold';
     vendor_bill_id: string | null;
+    image_url?: string | null;    // Photo shown on the storefront (set after upload)
+    saree_type?: string | null;   // Storefront category; overrides the website's own guess
     created_at: string;
 }
 
@@ -95,7 +134,6 @@ export interface ProductFilters {
     status?: string;
     search?: string;
     vendor?: string;
-    type?: string;
     saree_name?: string;
     color?: string;
     minPrice?: string;
@@ -136,14 +174,69 @@ export const productsApi = {
         });
     },
 
+    // Sends multipart/form-data, so it can't go through request() (which forces JSON)
+    uploadPhoto: async (id: string, file: File) => {
+        const formData = new FormData();
+        formData.append('photo', file);
+
+        const token = await getAuthToken();
+        const headers: HeadersInit = {};
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
+        const response = await fetch(`${API_BASE}/products/${id}/photo`, {
+            method: 'POST',
+            headers,
+            body: formData,
+            credentials: 'include',
+        });
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Upload failed');
+        }
+
+        return response.json() as Promise<{ success: boolean; image_url: string; product: Product }>;
+    },
+
+    deletePhoto: async (id: string) => {
+        return request<{ success: boolean; product: Product }>(`/products/${id}/photo`, {
+            method: 'DELETE',
+        });
+    },
+
 };
 
 export const vendorBillsApi = {
     create: async (bill: Omit<VendorBill, 'id' | 'created_at'>, products: Omit<Product, 'id' | 'created_at' | 'vendor_bill_id'>[]) => {
-        return request<VendorBill>('/vendor-bills', {
+        // Direct fetch rather than request(), because this sends its own shape. The token
+        // comes from getAuthToken, which races getSession against a 3s timeout: a bare
+        // getSession() can hang indefinitely — after a password change it stalls trying to
+        // renew a refresh token that is no longer valid — and awaiting it means the request
+        // below is never sent at all, leaving the save button spinning forever. Catching
+        // does not help, since hanging never throws.
+        const token = await getAuthToken();
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+        const response = await fetch(`${API_BASE}/vendor-bills`, {
             method: 'POST',
+            signal: controller.signal,
+            headers: {
+                'Content-Type': 'application/json',
+                ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+            },
             body: JSON.stringify({ bill, products }),
         });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Request failed' }));
+            throw new Error(error.error || 'Failed to create vendor purchase');
+        }
+
+        return response.json();
     },
 
     getAll: async () => {
@@ -152,7 +245,20 @@ export const vendorBillsApi = {
 
     getById: async (id: string) => {
         return request<VendorBill & { products: Product[] }>(`/vendor-bills/${id}`);
-    }
+    },
+
+    update: async (id: string, data: Partial<VendorBill>) => {
+        return request<VendorBill>(`/vendor-bills/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    delete: async (id: string) => {
+        return request<{ message: string }>(`/vendor-bills/${id}`, {
+            method: 'DELETE',
+        });
+    },
 };
 
 // ================== BILLS API ==================
@@ -162,6 +268,7 @@ export interface BillItem {
     selling_price: number;
     cost_price: number;
     quantity: number;
+    products?: Product;
 }
 
 export interface Bill {
@@ -180,6 +287,10 @@ export interface Bill {
 export const billsApi = {
     getAll: async () => {
         return request<Bill[]>('/bills');
+    },
+
+    getById: async (id: string) => {
+        return request<Bill>(`/bills/${id}`);
     },
 
     generateNumber: async () => {
@@ -238,14 +349,114 @@ export const analyticsApi = {
     },
 };
 
+// ================== EXPENSES API ==================
+
+export interface Expense {
+    id: string;
+    category: 'Rent' | 'Salary' | 'Electricity' | 'Transport' | 'Packaging' | 'Miscellaneous';
+    description: string | null;
+    amount: number;
+    expense_date: string;
+    created_by: string | null;
+    created_at: string;
+}
+
+export const expensesApi = {
+    getAll: async (filters: { startDate?: string; endDate?: string; category?: string } = {}) => {
+        const params = new URLSearchParams();
+        if (filters.startDate) params.append('startDate', filters.startDate);
+        if (filters.endDate) params.append('endDate', filters.endDate);
+        if (filters.category) params.append('category', filters.category);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<Expense[]>(`/expenses${query}`);
+    },
+
+    create: async (expense: { category: string; description?: string; amount: number; expense_date: string }) => {
+        return request<Expense>('/expenses', {
+            method: 'POST',
+            body: JSON.stringify(expense),
+        });
+    },
+
+    update: async (id: string, expense: Partial<Expense>) => {
+        return request<Expense>(`/expenses/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(expense),
+        });
+    },
+
+    delete: async (id: string) => {
+        return request<{ message: string }>(`/expenses/${id}`, {
+            method: 'DELETE',
+        });
+    },
+};
+
+// ================== REPORTS API ==================
+
+export interface GSTMonthly {
+    month: string;
+    input_cgst: number;
+    input_sgst: number;
+    input_igst: number;
+    input_total: number;
+    output_cgst: number;
+    output_sgst: number;
+    output_igst: number;
+    output_total: number;
+    purchase_total: number;
+    sales_total: number;
+}
+
+export interface ProfitLossMonthly {
+    month: string;
+    revenue: number;
+    cogs: number;
+    gross_profit: number;
+    expenses: number;
+    net_profit: number;
+    expense_breakdown: Record<string, number>;
+}
+
+export interface ProfitLossReport {
+    months: ProfitLossMonthly[];
+    totals: {
+        revenue: number;
+        cogs: number;
+        gross_profit: number;
+        expenses: number;
+        net_profit: number;
+    };
+}
+
+export const reportsApi = {
+    getGST: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<GSTMonthly[]>(`/reports/gst${query}`);
+    },
+
+    getProfitLoss: async (startDate?: string, endDate?: string) => {
+        const params = new URLSearchParams();
+        if (startDate) params.append('startDate', startDate);
+        if (endDate) params.append('endDate', endDate);
+        const query = params.toString() ? `?${params.toString()}` : '';
+        return request<ProfitLossReport>(`/reports/profit-loss${query}`);
+    },
+};
+
 // ================== USERS API ==================
 
 export interface User {
     id: string;
     email: string;
+    username: string;
     full_name: string | null;
-    role: 'founder' | 'salesman';
+    role: 'founder' | 'salesman' | 'accounting';
     created_at: string;
+    updated_at?: string;
 }
 
 export const usersApi = {
@@ -259,6 +470,110 @@ export const usersApi = {
             body: JSON.stringify({ role }),
         });
     },
+
+    update: async (id: string, data: { full_name?: string; role?: string }) => {
+        return request<User>(`/users/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(data),
+        });
+    },
+
+    resetPassword: async (id: string, password: string) => {
+        return request<{ message: string }>(`/users/${id}/password`, {
+            method: 'PUT',
+            body: JSON.stringify({ password }),
+        });
+    },
+};
+
+// ================== BILL IMAGE UPLOAD API ==================
+
+export interface BillExtractedData {
+    vendor: {
+        company_name: string;
+        gst_number: string;
+        bill_number: string;
+        bill_date: string;
+    };
+    transaction: {
+        is_local: boolean;
+    };
+    items: Array<{
+        saree_name: string;
+        material: string;
+        quantity: number;
+        cost_price: number;
+        hsn_code: string;
+        color: string;
+        cost_code: string;
+        selling_price_a: number;
+        selling_price_b: number;
+        discount_percent?: number;
+        rack_location: string;
+    }>;
+}
+
+export interface BillUploadResponse {
+    success: boolean;
+    storage_path: string;
+    extracted_data: BillExtractedData;
+    message: string;
+}
+
+export const inventoryApi = {
+    uploadBill: async (file: File): Promise<BillUploadResponse> => {
+        const formData = new FormData();
+        formData.append('billImage', file);
+
+        // Get the Supabase session token from localStorage or cookies
+        let token: string | null = null;
+
+        // Try to get token from cookie first
+        token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] || null;
+
+        // If not in cookie, try to get from Supabase session in localStorage
+        if (!token) {
+            try {
+                const supabaseSession = localStorage.getItem('sb-ndheubawdszpumtzwolm-auth-token');
+                if (supabaseSession) {
+                    const sessionData = JSON.parse(supabaseSession);
+                    token = sessionData?.access_token || null;
+                }
+            } catch (e) {
+                console.error('Failed to parse Supabase session:', e);
+            }
+        }
+
+        const headers: HeadersInit = {};
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
+        }
+
+        const uploadUrl = `${API_BASE}/inventory/upload-bill`;
+        console.log('[API] Uploading to:', uploadUrl);
+        console.log('[API] Has auth token:', !!token);
+
+        const response = await fetch(uploadUrl, {
+            method: 'POST',
+            body: formData, // Don't set Content-Type, browser will set it with boundary
+            credentials: 'include',
+            headers,
+        });
+
+        console.log('[API] Response status:', response.status, response.statusText);
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            console.error('[API] Error response:', error);
+            throw new Error(error.error || 'Failed to upload bill');
+        }
+
+        return response.json();
+    },
+
+    getBillImageUrl: async (path: string): Promise<{ url: string }> => {
+        return request<{ url: string }>(`/inventory/bill-image/${path}`);
+    }
 };
 
 // Health check

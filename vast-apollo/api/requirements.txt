@@ -1,0 +1,33 @@
+# Offline bill extraction for extract_bill.py. No API keys, no network at runtime —
+# the ONNX models are committed under api/ocr_models/.
+#
+# Only the roots are pinned; uv resolves the rest. The one thing resolution must not
+# do is install a desktop OpenCV.
+#
+# rapidocr requires opencv-python, the desktop build, which writes into the same cv2/
+# directory as the headless wheel — whichever lands last wins, and that order is not
+# deterministic, so identical deploys alternated between working and failing. The
+# direct file reference below satisfies that requirement with a 1KB shim carrying the
+# opencv-python name and no modules, leaving headless as the only real cv2. A direct
+# reference takes precedence over a transitive version requirement, so this settles
+# the resolution rather than racing it. See api/vendor/README.md.
+opencv-python @ file:///vercel/path0/api/vendor/opencv_python-4.14.0.94-py3-none-any.whl
+#
+# Two constraints shaped these choices, against Vercel's 500MB function limit:
+#
+#   - Headless OpenCV, not desktop. The desktop wheel needs libGL.so.1, absent on the
+#     serverless runtime, so cv2 fails to import there. It also installs over the same
+#     cv2/ directory as the headless build, so both cannot be present.
+#
+#   - Pinned to 4.x. The 5.x headless wheel still links libxcb.so.1, which the runtime
+#     also lacks — "libxcb.so.1: cannot open shared object file". 4.x is truly headless.
+#
+#   - Base OpenCV, not contrib. img2table would handle table detection but calls
+#     cv2.ximgproc, which only ships in contrib — ~160MB larger on Linux and enough to
+#     blow the limit. extract_bill.py rebuilds the table from OCR box coordinates
+#     instead, which needs nothing beyond base OpenCV.
+opencv-python-headless==4.14.0.94
+
+rapidocr==3.9.2
+onnxruntime==1.28.0
+pypdfium2==5.12.1

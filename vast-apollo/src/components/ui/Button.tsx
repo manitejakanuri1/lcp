@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 interface ButtonProps {
     children: ReactNode
-    variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
+    variant?: 'primary' | 'secondary' | 'danger' | 'ghost' | 'outline'
     size?: 'sm' | 'md' | 'lg'
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean
@@ -24,23 +24,24 @@ export function Button({
     className = ''
 }: ButtonProps) {
     const baseStyles = `
-    inline-flex items-center justify-center gap-2 font-semibold
-    rounded-xl border-none cursor-pointer transition-all duration-200
+    inline-flex items-center justify-center gap-2 font-medium
+    rounded-lg border cursor-pointer transition-all duration-150
     disabled:opacity-50 disabled:cursor-not-allowed
-    active:scale-[0.98]
+    active:scale-[0.98] focus:outline-none
   `
 
     const variantStyles = {
-        primary: 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white shadow-md hover:shadow-lg hover:brightness-110',
-        secondary: 'bg-[var(--color-surface-elevated)] text-[var(--color-text)] border border-[var(--color-border)] hover:bg-[var(--color-border)]',
-        danger: 'bg-red-500 text-white hover:brightness-110',
-        ghost: 'bg-transparent text-[var(--color-text)] hover:bg-[var(--color-surface-elevated)]'
+        primary: 'bg-[var(--color-primary)] border-[var(--color-primary)] text-white shadow-sm hover:bg-[var(--color-primary-hover)] hover:border-[var(--color-primary-hover)] hover:shadow-md',
+        secondary: 'bg-[var(--color-surface-elevated)] text-[var(--color-text)] border-[var(--color-border)] hover:bg-[var(--color-surface)] hover:border-[var(--color-text-muted)]',
+        danger: 'bg-[var(--color-danger)] border-[var(--color-danger)] text-white hover:bg-red-600 hover:border-red-600',
+        ghost: 'bg-transparent border-transparent text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-elevated)]',
+        outline: 'bg-transparent border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary-light)]'
     }
 
     const sizeStyles = {
-        sm: 'px-3 py-1.5 text-sm',
-        md: 'px-4 py-2.5 text-sm',
-        lg: 'px-6 py-3 text-base'
+        sm: 'px-3 py-1.5 text-xs',
+        md: 'px-4 py-2 text-sm',
+        lg: 'px-5 py-2.5 text-sm'
     }
 
     return (
