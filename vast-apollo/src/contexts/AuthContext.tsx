@@ -146,7 +146,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 .single<{ email: string; role: string }>()
 
             if (profileError || !profileData) {
-                return { error: new Error('Invalid username or password'), role: null }
+                // PGRST116 is "no rows" — a genuinely unknown username. Anything else
+                // is the lookup itself failing (offline, stale cached build pointing at
+                // a bad URL, Supabase down), and calling that a wrong password sends
+                // people off resetting credentials that were never the problem.
+                const noSuchUser = !profileError || profileError.code === 'PGRST116'
+                if (noSuchUser) {
+                    return { error: new Error('Invalid username or password'), role: null }
+                }
+                console.error('[Auth] Profile lookup failed:', profileError)
+                return {
+                    error: new Error("Can't reach the server. Check your internet, then fully close and reopen the app."),
+                    role: null
+                }
             }
 
             const { error } = await supabase.auth.signInWithPassword({
@@ -155,7 +167,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             })
             return { error: error as Error | null, role: profileData.role }
         } catch (err) {
-            return { error: err as Error, role: null }
+            // supabase-js throws rather than returning an error when fetch itself fails.
+            console.error('[Auth] Sign-in threw:', err)
+            return {
+                error: new Error("Can't reach the server. Check your internet, then fully close and reopen the app."),
+                role: null
+            }
         }
     }
 
