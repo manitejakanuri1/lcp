@@ -345,7 +345,7 @@ export function POS() {
                                             <div>
                                                 <p className="font-mono text-sm text-[var(--color-accent-text)]">{item.product.sku}</p>
                                                 <p className="text-[var(--color-text)]">
-                                                    {item.product.saree_name || 'Unnamed'} • {item.product.material}
+                                                    {item.product.saree_name || 'Unnamed'}{item.product.material ? ` • ${item.product.material}` : ''}
                                                 </p>
                                                 <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
                                                     <span>Stock: {item.product.quantity || 1} | Price: ₹</span>

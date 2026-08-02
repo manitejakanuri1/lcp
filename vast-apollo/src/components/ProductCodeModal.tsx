@@ -27,10 +27,13 @@ export function ProductCodeModal({ isOpen, onClose, product }: ProductCodeModalP
                             <span className="text-[var(--color-text-muted)]">SKU:</span>{' '}
                             <span className="font-mono text-[var(--color-text)]">{product.sku}</span>
                         </div>
-                        <div>
-                            <span className="text-[var(--color-text-muted)]">Material:</span>{' '}
-                            <span className="text-[var(--color-text)]">{product.material}</span>
-                        </div>
+                        {/* Material is optional now, so don't print an empty label row */}
+                        {product.material && (
+                            <div>
+                                <span className="text-[var(--color-text-muted)]">Material:</span>{' '}
+                                <span className="text-[var(--color-text)]">{product.material}</span>
+                            </div>
+                        )}
                         <div>
                             <span className="text-[var(--color-text-muted)]">Price:</span>{' '}
                             <span className="text-[var(--color-text)]">₹{product.selling_price_a}</span>

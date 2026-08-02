@@ -456,10 +456,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         placeholder="Full name"
                                     />
                                     <Input
-                                        label="Material"
-                                        value={item.material}
+                                        label="Material (optional)"
+                                        value={item.material || ''}
                                         onChange={(e) => handleItemChange(index, 'material', e.target.value)}
-                                        required
                                         placeholder="Material"
                                     />
                                     <Input

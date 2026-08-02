@@ -135,7 +135,7 @@ export function Inventory() {
     const filteredProducts = products.filter((p) =>
         p.sku.toLowerCase().includes(filter.toLowerCase()) ||
         (p.saree_name && p.saree_name.toLowerCase().includes(filter.toLowerCase())) ||
-        p.material.toLowerCase().includes(filter.toLowerCase()) ||
+        (p.material && p.material.toLowerCase().includes(filter.toLowerCase())) ||
         (p.color && p.color.toLowerCase().includes(filter.toLowerCase()))
     )
 
@@ -286,7 +286,7 @@ export function Inventory() {
                                             )}
                                         </div>
                                         <p className="text-[var(--color-text)] font-medium truncate">
-                                            {product.saree_name || 'Unnamed'} • {product.material}
+                                            {product.saree_name || 'Unnamed'}{product.material ? ` • ${product.material}` : ''}
                                         </p>
                                         <p className="text-xs text-[var(--color-text-muted)]">
                                             Website: {categoryLabel(product.saree_type)}
@@ -378,11 +378,10 @@ export function Inventory() {
                                 required
                             />
                             <Input
-                                label="Material"
+                                label="Material (optional)"
                                 placeholder="e.g., Silk, Cotton"
                                 value={formData.material}
                                 onChange={(e) => setFormData({ ...formData, material: e.target.value })}
-                                required
                             />
                             <Input
                                 type="number"
@@ -527,7 +526,7 @@ export function Inventory() {
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Material</p>
-                                    <p className="font-medium">{selectedProduct.material}</p>
+                                    <p className="font-medium">{selectedProduct.material || '-'}</p>
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Quantity</p>

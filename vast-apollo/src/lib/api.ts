@@ -104,7 +104,7 @@ export interface Product {
     selling_price_a: number;  // Regular price
     selling_price_b: number;  // Discount tier B
     saree_name: string;       // Name of saree
-    material: string;
+    material: string | null;  // Optional — the website category is now chosen explicitly
     color: string | null;
     quantity: number;         // Number of sarees
     rack_location: string | null;

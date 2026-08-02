@@ -293,7 +293,7 @@ export function Purchases() {
                                                 <div className="min-w-0">
                                                     <p className="font-mono text-xs text-[var(--color-accent-text)]">{product.sku}</p>
                                                     <p className="font-medium text-[var(--color-text)] truncate">
-                                                        {product.saree_name || 'Unnamed'} - {product.material}
+                                                        {product.saree_name || 'Unnamed'}{product.material ? ` - ${product.material}` : ''}
                                                     </p>
                                                     {product.color && (
                                                         <p className="text-xs text-[var(--color-text-muted)]">{product.color}</p>
