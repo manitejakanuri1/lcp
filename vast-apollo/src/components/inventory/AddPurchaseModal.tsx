@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Button, Input, Modal } from '../ui'
-import { vendorBillsApi, type Product, type BillExtractedData } from '../../lib/api'
+import { vendorBillsApi, productsApi, type Product, type BillExtractedData } from '../../lib/api'
 import { v4 as uuidv4 } from 'uuid'
 import { BillImageUpload } from './BillImageUpload'
+import { PhotoPicker } from './PhotoPicker'
 import { printThermalLabels } from './ThermalLabel'
 
 interface AddPurchaseModalProps {
@@ -33,7 +34,11 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const [billDate, setBillDate] = useState(new Date().toISOString().split('T')[0])
     const [items, setItems] = useState<ProductEntry[]>([{ ...INITIAL_PRODUCT }])
     const [discountPercents, setDiscountPercents] = useState<string[]>([''])
+    // One slot per item, held until the products exist and have ids to upload against.
+    const [itemPhotos, setItemPhotos] = useState<(File | null)[]>([null])
     const [isSubmitting, setIsSubmitting] = useState(false)
+    const [isUploadingPhotos, setIsUploadingPhotos] = useState(false)
+    const [failedPhotoSkus, setFailedPhotoSkus] = useState<string[]>([])
 
     // GST fields
     const [vendorGstNumber, setVendorGstNumber] = useState('')
@@ -54,6 +59,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const igstRate = isLocalTransaction ? 0 : 5.0
     const gstAmount = (subtotal * gstRate) / 100
     const totalAmount = subtotal + gstAmount
+    const photoCount = itemPhotos.filter(Boolean).length
 
     const generateSKU = () => {
         const shortUuid = uuidv4().split('-')[0].toUpperCase()
@@ -99,12 +105,18 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         const lastItem = items[items.length - 1]
         setItems([...items, { ...lastItem, sku: '' }]) // Copy previous item but clear SKU
         setDiscountPercents([...discountPercents, discountPercents[discountPercents.length - 1] || ''])
+        setItemPhotos([...itemPhotos, null]) // Never copy the photo — each saree is its own
     }
 
     const removeItem = (index: number) => {
         if (items.length === 1) return
         setItems(items.filter((_, i) => i !== index))
         setDiscountPercents(discountPercents.filter((_, i) => i !== index))
+        setItemPhotos(itemPhotos.filter((_, i) => i !== index))
+    }
+
+    const setItemPhoto = (index: number, file: File | null) => {
+        setItemPhotos(itemPhotos.map((photo, i) => (i === index ? file : photo)))
     }
 
     const handleBillDataExtracted = (extractedData: BillExtractedData) => {
@@ -133,6 +145,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
             setDiscountPercents(extractedData.items.map(item =>
                 (item as any).discount_percent ? String((item as any).discount_percent) : ''
             ))
+            // The bill scan replaces the item list wholesale, so photo slots restart too.
+            setItemPhotos(extractedData.items.map(() => null))
         }
 
         // Hide upload section after successful extraction
@@ -157,6 +171,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 cost_code: item.cost_code || null // Ensure cost_code is explicitly passed
             }))
 
+            // Photos are keyed by SKU rather than list position: the products come back from
+            // a bulk insert, and matching on array order would silently put a photo on the
+            // wrong saree if that order ever shifted. SKUs are unique per item.
+            const photosBySku = new Map<string, File>()
+            productsToCreates.forEach((product, index) => {
+                const photo = itemPhotos[index]
+                if (photo) photosBySku.set(product.sku, photo)
+            })
+
             const result = await vendorBillsApi.create({
                 company_name: companyName,
                 bill_number: billNumber,
@@ -170,8 +193,31 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 gst_amount: gstAmount
             }, productsToCreates)
 
+            const createdProducts: Product[] = result.products || []
+
+            // The bill is already saved at this point. A photo that fails must not throw,
+            // or the whole save would look like it failed — report the SKUs instead.
+            const failed: string[] = []
+            if (photosBySku.size > 0) {
+                setIsUploadingPhotos(true)
+                await Promise.all(
+                    createdProducts
+                        .filter((product) => photosBySku.has(product.sku))
+                        .map(async (product) => {
+                            try {
+                                await productsApi.uploadPhoto(product.id, photosBySku.get(product.sku)!)
+                            } catch (photoErr) {
+                                console.error(`Photo upload failed for ${product.sku}:`, photoErr)
+                                failed.push(product.sku)
+                            }
+                        })
+                )
+                setIsUploadingPhotos(false)
+            }
+
             // Store saved products and show success screen
-            setSavedProducts(result.products || [])
+            setSavedProducts(createdProducts)
+            setFailedPhotoSkus(failed)
             setSaveSuccess(true)
             onSuccess()
         } catch (err) {
@@ -179,6 +225,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
             alert('Failed to save purchase bill')
         } finally {
             setIsSubmitting(false)
+            setIsUploadingPhotos(false)
         }
     }
 
@@ -186,6 +233,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         // Reset everything
         setSaveSuccess(false)
         setSavedProducts([])
+        setItemPhotos([null])
+        setFailedPhotoSkus([])
         setCompanyName('')
         setBillNumber('')
         setVendorGstNumber('')
@@ -225,6 +274,21 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             Bill #{billNumber} from {companyName}
                         </p>
                     </div>
+
+                    {/* The bill saved fine, so this is a warning rather than a failure */}
+                    {failedPhotoSkus.length > 0 && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 w-full max-w-sm text-center">
+                            <p className="text-sm font-medium text-[var(--color-text)]">
+                                {failedPhotoSkus.length} photo{failedPhotoSkus.length > 1 ? 's' : ''} could not be uploaded
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] mt-1 font-mono break-words">
+                                {failedPhotoSkus.join(', ')}
+                            </p>
+                            <p className="text-xs text-[var(--color-text-muted)] mt-2">
+                                The products were saved. Open each one in Inventory to add its photo.
+                            </p>
+                        </div>
+                    )}
 
                     {/* Label Info */}
                     <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 w-full max-w-sm text-center">
@@ -475,6 +539,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         )}
                                     </div>
                                 </div>
+
+                                {/* Uploaded against this saree once the bill is saved */}
+                                <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                                    <PhotoPicker
+                                        file={itemPhotos[index] || null}
+                                        onChange={(file) => setItemPhoto(index, file)}
+                                        disabled={isSubmitting || isUploadingPhotos}
+                                    />
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -518,8 +591,12 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                         <Button type="button" variant="secondary" onClick={handleClose}>
                             Cancel
                         </Button>
-                        <Button type="submit" variant="primary" loading={isSubmitting}>
-                            💾 Save Purchase Bill
+                        <Button type="submit" variant="primary" loading={isSubmitting || isUploadingPhotos}>
+                            {isUploadingPhotos
+                                ? 'Uploading photos…'
+                                : photoCount > 0
+                                    ? `💾 Save Bill + ${photoCount} Photo${photoCount > 1 ? 's' : ''}`
+                                    : '💾 Save Purchase Bill'}
                         </Button>
                     </div>
                 </div>
