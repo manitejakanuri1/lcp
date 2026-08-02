@@ -6,6 +6,7 @@ import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
 import { ProductThumbnail } from '../components/inventory/ProductThumbnail'
 import { PhotoPicker } from '../components/inventory/PhotoPicker'
+import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
 
@@ -42,7 +43,7 @@ export function Inventory() {
         material: '',
         color: '',
         quantity: '1',
-
+        saree_type: '',
     })
 
     useEffect(() => {
@@ -83,6 +84,7 @@ export function Inventory() {
                 saree_name: formData.saree_name,
                 material: formData.material,
                 color: formData.color || null,
+                saree_type: formData.saree_type,
                 quantity: parseInt(formData.quantity) || 1,
                 rack_location: null,
                 status: 'available' as const,
@@ -117,7 +119,7 @@ export function Inventory() {
                 material: '',
                 color: '',
                 quantity: '1',
-
+                saree_type: '',
             })
             setNewProductPhoto(null)
             setIsModalOpen(false)
@@ -156,6 +158,7 @@ export function Inventory() {
             selling_price_b: product.selling_price_b,
             saree_name: product.saree_name,
             material: product.material,
+            saree_type: product.saree_type,
             quantity: product.quantity,
             rack_location: product.rack_location
         })
@@ -285,6 +288,9 @@ export function Inventory() {
                                         <p className="text-[var(--color-text)] font-medium truncate">
                                             {product.saree_name || 'Unnamed'} • {product.material}
                                         </p>
+                                        <p className="text-xs text-[var(--color-text-muted)]">
+                                            Website: {categoryLabel(product.saree_type)}
+                                        </p>
                                         {product.color && (
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
                                         )}
@@ -387,6 +393,24 @@ export function Inventory() {
                                 min="1"
                             />
 
+                            {/* Decides where the saree sits on the website. Without it the
+                                site guesses from the name, and never picks Langavoni. */}
+                            <div className="w-full">
+                                <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                    Website Category
+                                </label>
+                                <select
+                                    value={formData.saree_type}
+                                    onChange={(e) => setFormData({ ...formData, saree_type: e.target.value })}
+                                    required
+                                    className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                >
+                                    <option value="">Select a category…</option>
+                                    {SAREE_CATEGORIES.map((c) => (
+                                        <option key={c.id} value={c.id}>{c.label}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         {/* Selling Prices Section */}
@@ -672,6 +696,22 @@ export function Inventory() {
                                     value={editFormData.quantity?.toString() || ''}
                                     onChange={(e) => setEditFormData({ ...editFormData, quantity: e.target.value ? parseInt(e.target.value) : undefined })}
                                 />
+                                {/* Lets an existing saree be re-filed without opening the website admin */}
+                                <div className="w-full">
+                                    <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                        Website Category
+                                    </label>
+                                    <select
+                                        value={editFormData.saree_type || ''}
+                                        onChange={(e) => setEditFormData({ ...editFormData, saree_type: e.target.value || null })}
+                                        className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                    >
+                                        <option value="">Auto (guessed from name)</option>
+                                        {SAREE_CATEGORIES.map((c) => (
+                                            <option key={c.id} value={c.id}>{c.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                             <div className="flex gap-3 pt-4">
                                 <Button

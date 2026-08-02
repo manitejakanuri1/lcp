@@ -4,6 +4,7 @@ import { vendorBillsApi, productsApi, type Product, type BillExtractedData } fro
 import { v4 as uuidv4 } from 'uuid'
 import { BillImageUpload } from './BillImageUpload'
 import { PhotoPicker } from './PhotoPicker'
+import { SAREE_CATEGORIES } from '../../lib/categories'
 import { printThermalLabels } from './ThermalLabel'
 
 interface AddPurchaseModalProps {
@@ -25,7 +26,8 @@ const INITIAL_PRODUCT: ProductEntry = {
     color: '',
     hsn_code: '',
     quantity: 1,
-    rack_location: ''
+    rack_location: '',
+    saree_type: ''
 }
 
 export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModalProps) {
@@ -140,7 +142,10 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 color: item.color || '',
                 hsn_code: item.hsn_code || '',
                 quantity: item.quantity,
-                rack_location: item.rack_location || ''
+                rack_location: item.rack_location || '',
+                // The bill doesn't say which website category a saree belongs to,
+                // so it stays blank and the form makes it a required choice.
+                saree_type: ''
             })))
             setDiscountPercents(extractedData.items.map(item =>
                 (item as any).discount_percent ? String((item as any).discount_percent) : ''
@@ -531,6 +536,23 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         value={item.hsn_code || ''}
                                         onChange={(e) => handleItemChange(index, 'hsn_code', e.target.value)}
                                     />
+                                    {/* Decides where this saree sits on the website */}
+                                    <div className="w-full">
+                                        <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                            Website Category
+                                        </label>
+                                        <select
+                                            value={item.saree_type || ''}
+                                            onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
+                                            required
+                                            className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                        >
+                                            <option value="">Select…</option>
+                                            {SAREE_CATEGORIES.map((c) => (
+                                                <option key={c.id} value={c.id}>{c.label}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div className="flex items-end">
                                         {items.length > 1 && (
                                             <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-[var(--color-danger-text)] !bg-red-500/10 w-full">

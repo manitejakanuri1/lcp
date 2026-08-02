@@ -111,6 +111,7 @@ export interface Product {
     status: 'available' | 'sold';
     vendor_bill_id: string | null;
     image_url?: string | null;    // Photo shown on the storefront (set after upload)
+    saree_type?: string | null;   // Storefront category; overrides the website's own guess
     created_at: string;
 }
 
