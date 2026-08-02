@@ -447,8 +447,25 @@ class handler(BaseHTTPRequestHandler):
                 report[name] = f"FAILED {type(err).__name__}: {err}"
 
         models = {os.path.basename(p): os.path.exists(p) for p in MODEL_PARAMS.values()}
+
+        # Which OpenCV distributions actually landed, and where — the pinned wheel
+        # and the installed one have disagreed before.
+        from importlib.metadata import distributions
+
+        opencv_dists = sorted(
+            f"{d.metadata['Name']}=={d.version}"
+            for d in distributions()
+            if "opencv" in (d.metadata["Name"] or "").lower()
+        )
+
         ok = not any(v.startswith("FAILED") for v in report.values())
-        self._send(200 if ok else 500, {"ok": ok, "imports": report, "models": models})
+        self._send(200 if ok else 500, {
+            "ok": ok,
+            "imports": report,
+            "models": models,
+            "opencv_dists": opencv_dists,
+            "python": os.sys.version.split()[0],
+        })
 
     def do_POST(self):
         secret = os.environ.get("INTERNAL_API_SECRET")
