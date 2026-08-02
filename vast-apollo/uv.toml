@@ -1,0 +1,11 @@
+# Vercel installs the Python function with uv, which ignores pip's environment
+# variables — so PIP_NO_DEPS has no effect there.
+#
+# rapidocr requires "opencv_python", the desktop build. That wheel installs over the
+# same cv2/ directory as the headless one we pin in requirements.txt, and whichever
+# lands last wins. When the desktop build wins, cv2 fails to import on the runtime
+# with "libxcb.so.1: cannot open shared object file".
+#
+# The marker below is never true, so the desktop dependency resolves to nothing and
+# opencv-python-headless is the only cv2 installed.
+override-dependencies = ["opencv-python ; sys_platform == 'never'"]
