@@ -14,11 +14,15 @@
 #     the headless ones rather than instead of them, and each carries its own ~80MB
 #     of .so files.
 #
+#     Pinned to 4.x, not the current 5.0.0.93: the 5.x headless wheel still links
+#     libxcb.so.1, which the runtime does not have, and cv2 fails to import with
+#     "libxcb.so.1: cannot open shared object file". 4.x is genuinely headless.
+#
 #   - Base OpenCV, not contrib. img2table would handle the table detection but calls
 #     cv2.ximgproc, which only ships in contrib — ~160MB larger on Linux and enough
 #     to blow the limit. extract_bill.py rebuilds the table from OCR box coordinates
 #     instead, which needs nothing beyond base OpenCV.
-opencv-python-headless==5.0.0.93
+opencv-python-headless==4.14.0.94
 
 rapidocr==3.9.2
 onnxruntime==1.28.0
