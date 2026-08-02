@@ -2,7 +2,17 @@
     "version": 2,
     "buildCommand": "npm run build",
     "outputDirectory": "dist",
+    "functions": {
+        "api/extract_bill.py": {
+            "memory": 3009,
+            "maxDuration": 300
+        }
+    },
     "rewrites": [
+        {
+            "source": "/api/extract_bill",
+            "destination": "/api/extract_bill"
+        },
         {
             "source": "/api/(.*)",
             "destination": "/api/index.js"

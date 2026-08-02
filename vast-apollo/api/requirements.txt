@@ -1,0 +1,13 @@
+# Offline bill extraction for extract_bill.py. No API keys, no network at runtime —
+# the ONNX models are committed under api/ocr_models/.
+#
+# The headless OpenCV builds are deliberate: rapidocr and img2table both declare the
+# desktop builds, which need libGL.so.1. That library isn't present on the serverless
+# runtime, so importing cv2 there fails. Listing the headless wheels here makes them
+# win, and they expose the identical cv2 module.
+opencv-python-headless==5.0.0.93
+opencv-contrib-python-headless==5.0.0.93
+
+rapidocr==3.9.2
+onnxruntime==1.28.0
+img2table==2.0.0
