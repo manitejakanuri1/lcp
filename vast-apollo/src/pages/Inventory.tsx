@@ -68,6 +68,15 @@ export function Inventory() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Checked here rather than by the `required` attribute so the reason is stated
+        // outright — a browser validation bubble on a field scrolled out of the modal is
+        // invisible, and the save button just looks broken.
+        if (!formData.saree_type) {
+            alert('Choose a Website Category before saving.\n\nIt decides which section of the website this saree appears in.')
+            return
+        }
+
         setIsSubmitting(true)
 
         try {
@@ -401,8 +410,9 @@ export function Inventory() {
                                 <select
                                     value={formData.saree_type}
                                     onChange={(e) => setFormData({ ...formData, saree_type: e.target.value })}
-                                    required
-                                    className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                    className={`w-full px-4 py-3 text-base bg-[var(--color-surface)] border rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
+                                        formData.saree_type ? 'border-[var(--color-border)]' : 'border-amber-500'
+                                    }`}
                                 >
                                     <option value="">Select a category…</option>
                                     {SAREE_CATEGORIES.map((c) => (

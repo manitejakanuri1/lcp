@@ -62,6 +62,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const gstAmount = (subtotal * gstRate) / 100
     const totalAmount = subtotal + gstAmount
     const photoCount = itemPhotos.filter(Boolean).length
+    const missingCategoryCount = items.filter((item) => !item.saree_type).length
 
     const generateSKU = () => {
         const shortUuid = uuidv4().split('-')[0].toUpperCase()
@@ -96,6 +97,16 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
             newItems.forEach((item, i) => {
                 if (i !== index && !item.material) {
                     newItems[i] = { ...newItems[i], material: value }
+                }
+            })
+        }
+
+        // Same for the category: a scanned bill returns every row blank, and a bill is
+        // usually one kind of saree. Only blanks are filled, so a row set by hand stays.
+        if (field === 'saree_type' && value) {
+            newItems.forEach((item, i) => {
+                if (i !== index && !item.saree_type) {
+                    newItems[i] = { ...newItems[i], saree_type: value }
                 }
             })
         }
@@ -160,6 +171,21 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Checked here rather than with the `required` attribute: the item rows sit in a
+        // scrolling box, and the browser cannot show its validation bubble on a dropdown
+        // that is scrolled out of sight — the save button just appears to do nothing.
+        const missingCategory = items
+            .map((item, index) => (item.saree_type ? 0 : index + 1))
+            .filter(Boolean)
+        if (missingCategory.length > 0) {
+            alert(
+                `Choose a Website Category for item ${missingCategory.map((n) => `#${n}`).join(', ')}.\n\n` +
+                `Scroll up through the product list to find it.`
+            )
+            return
+        }
+
         setIsSubmitting(true)
 
         try {
@@ -543,8 +569,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         <select
                                             value={item.saree_type || ''}
                                             onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
-                                            required
-                                            className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                            className={`w-full px-4 py-3 text-base bg-[var(--color-surface)] border rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
+                                                item.saree_type ? 'border-[var(--color-border)]' : 'border-amber-500'
+                                            }`}
                                         >
                                             <option value="">Select…</option>
                                             {SAREE_CATEGORIES.map((c) => (
@@ -606,6 +633,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             </div>
                         </div>
                     </div>
+
+                    {/* Says why the save is blocked, instead of the button looking dead */}
+                    {missingCategoryCount > 0 && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm text-[var(--color-text)]">
+                            {missingCategoryCount} product{missingCategoryCount > 1 ? 's' : ''} still need
+                            {missingCategoryCount > 1 ? '' : 's'} a <strong>Website Category</strong>. Pick one on any
+                            row and the rest fill in automatically.
+                        </div>
+                    )}
 
                     {/* Action Buttons */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
