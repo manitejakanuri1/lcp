@@ -5,6 +5,7 @@ import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
 import { ProductThumbnail } from '../components/inventory/ProductThumbnail'
+import { PhotoPicker } from '../components/inventory/PhotoPicker'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
 
@@ -24,6 +25,8 @@ export function Inventory() {
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
+    // Held until the product exists, then uploaded against its new id.
+    const [newProductPhoto, setNewProductPhoto] = useState<File | null>(null)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -86,7 +89,19 @@ export function Inventory() {
                 vendor_bill_id: null // Manual entry has no bill
             }
 
-            await productsApi.create(newProduct)
+            const created = await productsApi.create(newProduct)
+
+            // The product now has an id, so the photo held by PhotoPicker can be attached.
+            // A failure here must not read as "nothing saved" — the product is already in.
+            if (newProductPhoto) {
+                try {
+                    await productsApi.uploadPhoto(created.id, newProductPhoto)
+                } catch (photoErr) {
+                    console.error('Error uploading product photo:', photoErr)
+                    const reason = photoErr instanceof Error ? photoErr.message : 'unknown error'
+                    alert(`Product added, but the photo failed to upload: ${reason}\n\nOpen the product to add it again.`)
+                }
+            }
 
             // Reset form and refresh
             setFormData({
@@ -104,10 +119,12 @@ export function Inventory() {
                 quantity: '1',
 
             })
+            setNewProductPhoto(null)
             setIsModalOpen(false)
             fetchProducts()
         } catch (err) {
             console.error('Error adding product:', err)
+            alert(err instanceof Error ? err.message : 'Error adding product')
         } finally {
             setIsSubmitting(false)
         }
@@ -283,7 +300,7 @@ export function Inventory() {
                 )}
 
                 {/* Add Product Modal */}
-                <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add New Product" size="lg">
+                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="lg">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
@@ -422,12 +439,20 @@ export function Inventory() {
                                 />
                             </div>
                         </div>
+
+                        {/* Uploaded straight after the product is created, in one save */}
+                        <PhotoPicker
+                            file={newProductPhoto}
+                            onChange={setNewProductPhoto}
+                            disabled={isSubmitting}
+                        />
+
                         <div className="flex gap-3 pt-4">
-                            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
+                            <Button type="button" variant="secondary" onClick={() => { setIsModalOpen(false); setNewProductPhoto(null) }}>
                                 Cancel
                             </Button>
                             <Button type="submit" variant="primary" loading={isSubmitting}>
-                                Add Product
+                                {newProductPhoto ? 'Add Product & Photo' : 'Add Product'}
                             </Button>
                         </div>
                     </form>
