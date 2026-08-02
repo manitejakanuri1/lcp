@@ -1,50 +1,25 @@
 # Offline bill extraction for extract_bill.py. No API keys, no network at runtime —
 # the ONNX models are committed under api/ocr_models/.
 #
-# This list is complete and pinned by hand, and PIP_NO_DEPS=1 is set on the Vercel
-# project so pip installs exactly these and nothing else. (pip rejects a bare
-# --no-deps line inside a requirements file, so the env var is the only way to get
-# the same effect through Vercel's install step.)
+# Only the roots are pinned; uv resolves the rest. The one thing resolution must not
+# do is install a desktop OpenCV, which api/overrides.txt prevents (wired up by the
+# UV_OVERRIDE environment variable on the Vercel project).
 #
-# Two size constraints shaped this, against Vercel's 500MB function limit:
+# Two constraints shaped these choices, against Vercel's 500MB function limit:
 #
-#   - The headless OpenCV build is required. rapidocr declares the desktop build,
-#     which needs libGL.so.1 — absent on the serverless runtime, so cv2 fails to
-#     import there. Left to resolve, pip also installs the desktop wheels alongside
-#     the headless ones rather than instead of them, and each carries its own ~80MB
-#     of .so files.
+#   - Headless OpenCV, not desktop. The desktop wheel needs libGL.so.1, absent on the
+#     serverless runtime, so cv2 fails to import there. It also installs over the same
+#     cv2/ directory as the headless build, so both cannot be present.
 #
-#     Pinned to 4.x, not the current 5.0.0.93: the 5.x headless wheel still links
-#     libxcb.so.1, which the runtime does not have, and cv2 fails to import with
-#     "libxcb.so.1: cannot open shared object file". 4.x is genuinely headless.
+#   - Pinned to 4.x. The 5.x headless wheel still links libxcb.so.1, which the runtime
+#     also lacks — "libxcb.so.1: cannot open shared object file". 4.x is truly headless.
 #
-#   - Base OpenCV, not contrib. img2table would handle the table detection but calls
-#     cv2.ximgproc, which only ships in contrib — ~160MB larger on Linux and enough
-#     to blow the limit. extract_bill.py rebuilds the table from OCR box coordinates
+#   - Base OpenCV, not contrib. img2table would handle table detection but calls
+#     cv2.ximgproc, which only ships in contrib — ~160MB larger on Linux and enough to
+#     blow the limit. extract_bill.py rebuilds the table from OCR box coordinates
 #     instead, which needs nothing beyond base OpenCV.
 opencv-python-headless==4.14.0.94
 
 rapidocr==3.9.2
 onnxruntime==1.28.0
 pypdfium2==5.12.1
-
-# Transitive dependencies, resolved from the roots above.
-antlr4-python3-runtime==4.9.3
-certifi==2026.7.22
-charset-normalizer==3.4.9
-colorlog==6.12.0
-flatbuffers==25.12.19
-idna==3.18
-numpy==2.5.1
-omegaconf==2.3.1
-packaging==26.2
-pillow==12.3.0
-protobuf==7.35.1
-pyclipper==1.4.0
-pyyaml==6.0.3
-requests==2.34.2
-shapely==2.1.2
-six==1.17.0
-tqdm==4.70.0
-typing-extensions==4.16.0
-urllib3==2.7.0
