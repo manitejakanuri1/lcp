@@ -1,12 +1,19 @@
 """Offline bill extraction — reads a GST purchase invoice with no external API.
 
-Replaces the Gemini Vision call in index.js. RapidOCR reads the text, img2table
-recovers the line-item grid, and the rules below map columns onto the same JSON
-shape index.js already validates, so nothing downstream changes.
+Replaces the Gemini Vision call in index.js. RapidOCR reads the text and the
+geometry below rebuilds the line-item table from the position of each detected
+box, so the result maps onto the same JSON shape index.js already validates and
+nothing downstream changes.
 
-Unlike a vision model this does not *understand* a bill; it finds text and grid
-lines and applies rules. Column names it doesn't recognise land in `_debug` so a
-new vendor layout can be diagnosed from the response.
+The table is reconstructed from coordinates rather than by detecting ruled lines.
+That keeps the dependency set to base OpenCV — img2table would do this job but
+needs cv2.ximgproc from the contrib build, which is ~160MB larger on Linux and
+put the function over Vercel's 500MB limit. Reading geometry also copes with
+bills whose columns aren't ruled.
+
+Unlike a vision model this does not *understand* a bill; it groups text and
+applies rules. The header labels it found land in `_debug` so an unfamiliar
+vendor layout can be diagnosed from the response.
 """
 
 from __future__ import annotations
@@ -34,9 +41,11 @@ _ocr_engine = None
 def _get_ocr():
     global _ocr_engine
     if _ocr_engine is None:
-        from img2table.ocr import RapidOCR
+        from rapidocr import LangRec, RapidOCR
 
-        _ocr_engine = RapidOCR(params=dict(MODEL_PARAMS))
+        params = dict(MODEL_PARAMS)
+        params["Rec.lang_type"] = LangRec.EN
+        _ocr_engine = RapidOCR(params=params)
     return _ocr_engine
 
 
@@ -156,7 +165,52 @@ def _parse_header(lines: list[str]) -> dict:
     }
 
 
-# ------------------------------------------------------------------ item table
+# --------------------------------------------------------- table from geometry
+
+
+class Box:
+    """One OCR detection, reduced to an axis-aligned rectangle plus its text."""
+
+    __slots__ = ("text", "x1", "y1", "x2", "y2")
+
+    def __init__(self, text: str, points):
+        xs = [float(p[0]) for p in points]
+        ys = [float(p[1]) for p in points]
+        self.text = text.strip()
+        self.x1, self.x2 = min(xs), max(xs)
+        self.y1, self.y2 = min(ys), max(ys)
+
+    @property
+    def cy(self) -> float:
+        return (self.y1 + self.y2) / 2
+
+    @property
+    def height(self) -> float:
+        return self.y2 - self.y1
+
+
+def _group_rows(boxes: list[Box]) -> list[list[Box]]:
+    """Cluster boxes into visual rows by vertical overlap."""
+    if not boxes:
+        return []
+
+    heights = sorted(b.height for b in boxes)
+    median_h = heights[len(heights) // 2] or 1.0
+    tolerance = median_h * 0.6
+
+    rows: list[list[Box]] = []
+    for box in sorted(boxes, key=lambda b: b.cy):
+        # Same row when the vertical centre is within tolerance of the row's centre.
+        if rows:
+            current = rows[-1]
+            row_cy = sum(b.cy for b in current) / len(current)
+            if abs(box.cy - row_cy) <= tolerance:
+                current.append(box)
+                continue
+        rows.append([box])
+
+    return [sorted(row, key=lambda b: b.x1) for row in rows]
+
 
 # Checked in order — "HSN Code" must match hsn before it can match cost_code.
 COLUMN_RULES = [
@@ -171,44 +225,75 @@ COLUMN_RULES = [
 ]
 
 
-def _map_columns(header_cells: list[str]) -> dict[str, int]:
-    """Map our field names onto column indexes using the table's header row."""
-    mapping: dict[str, int] = {}
-    for idx, raw in enumerate(header_cells):
-        label = (raw or "").strip().lower()
-        if not label:
+def _match_field(label: str, taken: set[str]) -> str | None:
+    low = label.strip().lower()
+    if not low:
+        return None
+    for field, keywords in COLUMN_RULES:
+        if field in taken:
             continue
-        for field, keywords in COLUMN_RULES:
-            if field in mapping:
-                continue
-            if any(k in label for k in keywords):
-                mapping[field] = idx
-                break
-    return mapping
+        if any(k in low for k in keywords):
+            return field
+    return None
 
 
-def _cells(row) -> list[str]:
-    return [(c.value or "").replace("\n", " ").strip() for c in row]
+def _find_header_row(rows: list[list[Box]]) -> int:
+    """The row that names the most of our known columns is the table header."""
+    best_idx, best_score = -1, 0
+    for idx, row in enumerate(rows):
+        taken: set[str] = set()
+        for box in row:
+            field = _match_field(box.text, taken)
+            if field:
+                taken.add(field)
+        score = len(taken) + (2 if "description" in taken else 0)
+        if score > best_score:
+            best_idx, best_score = idx, score
+    # Two named columns is the floor; below that it isn't a table header.
+    return best_idx if best_score >= 3 else -1
 
 
-def _score_table(table) -> int:
-    """How much this table looks like a list of purchased goods."""
-    if not table.content:
-        return -1
-    header = _cells(next(iter(table.content.values())))
-    mapping = _map_columns(header)
-    score = len(mapping) * 2
-    if "description" in mapping:
-        score += 5
-    if len(table.content) >= 2:
-        score += len(table.content)
-    return score
+def _assign_columns(header_row: list[Box]) -> tuple[list[tuple[float, float]], dict[str, int]]:
+    """Column x-spans from the header, plus which of our fields each one is."""
+    spans = [(b.x1, b.x2) for b in header_row]
+    mapping: dict[str, int] = {}
+    taken: set[str] = set()
+    for idx, box in enumerate(header_row):
+        field = _match_field(box.text, taken)
+        if field:
+            mapping[field] = idx
+            taken.add(field)
+    return spans, mapping
 
 
-def _build_items(table) -> tuple[list[dict], list[str]]:
-    rows = list(table.content.values())
-    header = _cells(rows[0])
-    mapping = _map_columns(header)
+def _cells_for_row(row: list[Box], spans: list[tuple[float, float]]) -> list[str]:
+    """Drop each box into the column it overlaps most."""
+    cells: list[list[str]] = [[] for _ in spans]
+    for box in row:
+        best_idx, best_overlap = None, 0.0
+        for idx, (sx1, sx2) in enumerate(spans):
+            overlap = min(box.x2, sx2) - max(box.x1, sx1)
+            if overlap > best_overlap:
+                best_idx, best_overlap = idx, overlap
+        if best_idx is None:
+            # No overlap at all (a wide wrapped description); fall back to nearest.
+            centre = (box.x1 + box.x2) / 2
+            best_idx = min(
+                range(len(spans)),
+                key=lambda i: abs(centre - (spans[i][0] + spans[i][1]) / 2),
+            )
+        cells[best_idx].append(box.text)
+    return [" ".join(parts).strip() for parts in cells]
+
+
+# Rows at or after these words are totals, not goods.
+STOP_WORDS = ("grand total", "sub total", "subtotal", "total amount", "taxable value",
+              "cgst", "sgst", "igst", "round off", "amount in words", "e.& o.e")
+
+
+def _build_items(rows: list[list[Box]], header_idx: int) -> tuple[list[dict], list[str]]:
+    spans, mapping = _assign_columns(rows[header_idx])
+    header_labels = [b.text for b in rows[header_idx]]
 
     def cell(cells: list[str], field: str) -> str:
         idx = mapping.get(field)
@@ -216,9 +301,13 @@ def _build_items(table) -> tuple[list[dict], list[str]]:
             return ""
         return cells[idx]
 
-    items = []
-    for row in rows[1:]:
-        cells = _cells(row)
+    items: list[dict] = []
+    for row in rows[header_idx + 1:]:
+        joined = " ".join(b.text for b in row).lower()
+        if any(word in joined for word in STOP_WORDS):
+            break
+
+        cells = _cells_for_row(row, spans)
         if not any(cells):
             continue
 
@@ -231,7 +320,7 @@ def _build_items(table) -> tuple[list[dict], list[str]]:
         if rate <= 0 and amount > 0 and quantity > 0:
             rate = round(amount / quantity, 2)
 
-        # A row with neither a name nor a price is a total/footer line, not an item.
+        # A row with neither a name nor a price is a stray line, not an item.
         if not name and rate <= 0:
             continue
 
@@ -249,71 +338,84 @@ def _build_items(table) -> tuple[list[dict], list[str]]:
             "discount_percent": _clean_number(cell(cells, "discount")),
         })
 
-    return items, header
+    return items, header_labels
+
+
+# ------------------------------------------------------------------- page input
+
+
+def _page_images(data: bytes) -> list:
+    """Render the upload to a list of numpy images — one per page for PDFs."""
+    import numpy as np
+
+    if data[:5] == b"%PDF-":
+        import pypdfium2
+
+        pdf = pypdfium2.PdfDocument(data)
+        try:
+            # 200 dpi keeps small print legible without blowing up memory.
+            return [
+                np.asarray(page.render(scale=200 / 72).to_pil().convert("RGB"))[:, :, ::-1]
+                for page in pdf
+            ]
+        finally:
+            pdf.close()
+
+    import cv2
+
+    image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Could not decode the uploaded image")
+    return [image]
 
 
 def extract_bill_data(image_bytes: bytes) -> dict:
     """Read an invoice image and return the same JSON shape index.js expects."""
-    import tempfile
-
-    from img2table.document import PDF as TablePDF
-    from img2table.document import Image as TableImage
-
     ocr = _get_ocr()
 
-    # The uploader accepts PDFs as well as photos, and they need different readers.
-    is_pdf = image_bytes[:5] == b"%PDF-"
+    all_lines: list[str] = []
+    items: list[dict] = []
+    header_labels: list[str] = []
+    rows_seen = 0
 
-    # img2table wants a path or file object; /tmp is the only writable place here.
-    with tempfile.NamedTemporaryFile(suffix=".pdf" if is_pdf else ".jpg", delete=False) as tmp:
-        tmp.write(image_bytes)
-        tmp_path = tmp.name
+    for page in _page_images(image_bytes):
+        result = ocr(page)
+        texts = list(result.txts or [])
+        boxes_raw = result.boxes if result.boxes is not None else []
+        if not texts:
+            continue
 
-    try:
-        doc = TablePDF(tmp_path) if is_pdf else TableImage(tmp_path)
+        all_lines.extend(t for t in texts if t and t.strip())
 
-        # Read every page image for the header fields, not just the first.
-        lines: list[str] = []
-        for page in doc.images:
-            page_result = ocr.engine(page)
-            lines.extend(t for t in (page_result.txts or []) if t and t.strip())
-        header = _parse_header(lines)
-        tables = doc.extract_tables(
-            ocr=ocr,
-            implicit_rows=False,
-            borderless_tables=True,
-            min_confidence=50,
-        )
+        boxes = [Box(t, pts) for t, pts in zip(texts, boxes_raw) if t and t.strip()]
+        rows = _group_rows(boxes)
+        rows_seen += len(rows)
 
-        items: list[dict] = []
-        detected_header: list[str] = []
-        if tables:
-            best = max(tables, key=_score_table)
-            items, detected_header = _build_items(best)
+        # Take the line items from the first page that actually has a table.
+        if not items:
+            header_idx = _find_header_row(rows)
+            if header_idx >= 0:
+                items, header_labels = _build_items(rows, header_idx)
 
-        return {
-            "vendor": {
-                "company_name": header["company_name"],
-                "gst_number": header["gst_number"],
-                "bill_number": header["bill_number"],
-                "bill_date": header["bill_date"],
-            },
-            "transaction": {"is_local": header["is_local"]},
-            "items": items,
-            # Surfaced so an unrecognised vendor layout can be diagnosed from the
-            # response instead of guessed at.
-            "_debug": {
-                "tables_found": len(tables),
-                "detected_columns": detected_header,
-                "mapped_fields": sorted(_map_columns(detected_header).keys()),
-                "text_lines": len(lines),
-            },
-        }
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+    header = _parse_header(all_lines)
+
+    return {
+        "vendor": {
+            "company_name": header["company_name"],
+            "gst_number": header["gst_number"],
+            "bill_number": header["bill_number"],
+            "bill_date": header["bill_date"],
+        },
+        "transaction": {"is_local": header["is_local"]},
+        "items": items,
+        # Surfaced so an unrecognised vendor layout can be diagnosed from the
+        # response instead of guessed at.
+        "_debug": {
+            "text_lines": len(all_lines),
+            "rows_detected": rows_seen,
+            "detected_columns": header_labels,
+        },
+    }
 
 
 # ------------------------------------------------------------------- http entry

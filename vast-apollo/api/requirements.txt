@@ -1,28 +1,31 @@
 # Offline bill extraction for extract_bill.py. No API keys, no network at runtime —
 # the ONNX models are committed under api/ocr_models/.
 #
-# This list is complete and pinned by hand, and the PIP_NO_DEPS=1 environment
-# variable is set on the Vercel project so pip installs exactly these and nothing
-# else. (pip rejects a bare --no-deps line inside a requirements file, so the env
-# var is the only way to get the same effect through Vercel's install step.)
+# This list is complete and pinned by hand, and PIP_NO_DEPS=1 is set on the Vercel
+# project so pip installs exactly these and nothing else. (pip rejects a bare
+# --no-deps line inside a requirements file, so the env var is the only way to get
+# the same effect through Vercel's install step.)
 #
-# Left to resolve, pip installs FOUR OpenCV wheels: rapidocr asks for opencv-python,
-# img2table asks for opencv-contrib-python, and the headless builds arrive alongside
-# rather than instead of them. Each bundles ~80MB of its own .so files, which pushed
-# the function to 701MB against Vercel's 500MB limit.
+# Two size constraints shaped this, against Vercel's 500MB function limit:
 #
-# opencv-contrib-python-headless alone satisfies everything: contrib is a superset
-# of the base package, and headless drops the GUI libs that need libGL.so.1 —
-# absent on the serverless runtime, so the desktop builds fail to import there.
-opencv-contrib-python-headless==5.0.0.93
+#   - The headless OpenCV build is required. rapidocr declares the desktop build,
+#     which needs libGL.so.1 — absent on the serverless runtime, so cv2 fails to
+#     import there. Left to resolve, pip also installs the desktop wheels alongside
+#     the headless ones rather than instead of them, and each carries its own ~80MB
+#     of .so files.
+#
+#   - Base OpenCV, not contrib. img2table would handle the table detection but calls
+#     cv2.ximgproc, which only ships in contrib — ~160MB larger on Linux and enough
+#     to blow the limit. extract_bill.py rebuilds the table from OCR box coordinates
+#     instead, which needs nothing beyond base OpenCV.
+opencv-python-headless==5.0.0.93
 
 rapidocr==3.9.2
 onnxruntime==1.28.0
-img2table==2.0.0
+pypdfium2==5.12.1
 
-# Transitive dependencies, resolved from the three roots above.
+# Transitive dependencies, resolved from the roots above.
 antlr4-python3-runtime==4.9.3
-beautifulsoup4==4.15.0
 certifi==2026.7.22
 charset-normalizer==3.4.9
 colorlog==6.12.0
@@ -34,13 +37,10 @@ packaging==26.2
 pillow==12.3.0
 protobuf==7.35.1
 pyclipper==1.4.0
-pypdfium2==5.12.1
 pyyaml==6.0.3
 requests==2.34.2
 shapely==2.1.2
 six==1.17.0
-soupsieve==2.9.1
 tqdm==4.70.0
 typing-extensions==4.16.0
 urllib3==2.7.0
-xlsxwriter==3.2.9
