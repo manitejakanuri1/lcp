@@ -186,6 +186,14 @@ export interface Database {
                 Args: Record<string, never>
                 Returns: string
             }
+            /** Resolves a username to its login email. Callable before sign-in, so it
+             *  deliberately returns nothing else — profiles itself is not readable then. */
+            get_login_email: {
+                Args: {
+                    p_username: string
+                }
+                Returns: string | null
+            }
             get_analytics_summary: {
                 Args: {
                     start_date?: string | null
