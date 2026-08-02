@@ -4,6 +4,7 @@ import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
+import { ProductThumbnail } from '../components/inventory/ProductThumbnail'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
 
@@ -229,6 +230,13 @@ export function Inventory() {
                                 onClick={() => setSelectedProduct(product)}
                             >
                                 <div className="flex flex-col gap-3">
+                                    {/* Photo shown on the storefront */}
+                                    <ProductThumbnail
+                                        imageUrl={product.image_url}
+                                        alt={product.saree_name || product.sku}
+                                        className="w-full h-44 rounded-lg"
+                                    />
+
                                     {/* Barcode */}
                                     <div className="bg-white rounded-lg p-2 flex items-center justify-center">
                                         <BarcodeDisplay

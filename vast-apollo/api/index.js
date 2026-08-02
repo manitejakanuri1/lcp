@@ -39,6 +39,36 @@ const upload = multer({
     }
 });
 
+// Product photos are image-only (no PDFs) and allow WEBP, which the bill uploader above
+// does not. Keeping them separate stops the two use cases from fighting over one filter.
+const photoUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB limit
+    },
+    fileFilter: (req, file, cb) => {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        if (allowedTypes.includes(file.mimetype)) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only JPG, PNG and WEBP images are allowed.'));
+        }
+    }
+});
+
+// Multer rejects (wrong type, file too large) throw before the route body runs. Without
+// this wrapper Express falls back to its default handler and replies with an HTML error
+// page, which the client can't parse — so the user just sees a generic "Upload failed".
+const singlePhoto = (req, res, next) => {
+    photoUpload.single('photo')(req, res, (err) => {
+        if (!err) return next();
+        const message = err.code === 'LIMIT_FILE_SIZE'
+            ? 'Image is too large. Maximum size is 10MB.'
+            : err.message || 'Upload failed';
+        res.status(400).json({ error: message });
+    });
+};
+
 // CORS must come BEFORE helmet to handle preflight OPTIONS correctly on mobile
 app.use(cors({
     origin: function (origin, callback) {
@@ -1246,7 +1276,7 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) =
 // Photos uploaded here land in the public `product-photos` bucket and the URL
 // is stored on products.image_url, which the storefront reads directly.
 
-app.post('/api/products/:id/photo', authenticateToken, upload.single('photo'), async (req, res) => {
+app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
@@ -1275,7 +1305,8 @@ app.post('/api/products/:id/photo', authenticateToken, upload.single('photo'), a
             .jpeg({ quality: 80 })
             .toBuffer();
 
-        const fileName = `${id}/${Date.now()}.jpg`;
+        const photoName = `${Date.now()}.jpg`;
+        const fileName = `${id}/${photoName}`;
 
         const { error: uploadError } = await supabase.storage
             .from('product-photos')
@@ -1303,6 +1334,18 @@ app.post('/api/products/:id/photo', authenticateToken, upload.single('photo'), a
 
         if (error) throw error;
 
+        // Each upload gets a fresh timestamped name, so replacing a photo would otherwise
+        // leave the old file behind forever. Sweep them once the new URL is safely saved.
+        const { data: existing } = await supabase.storage.from('product-photos').list(id);
+        const stale = (existing || [])
+            .filter((f) => f.name !== photoName)
+            .map((f) => `${id}/${f.name}`);
+        if (stale.length) {
+            const { error: sweepError } = await supabase.storage.from('product-photos').remove(stale);
+            // Orphaned files cost storage but don't break the product, so don't fail the request.
+            if (sweepError) console.error('Stale photo cleanup failed:', sweepError);
+        }
+
         res.json({ success: true, image_url: publicUrl.publicUrl, product: data });
     } catch (error) {
         console.error('Product photo upload error:', error);
@@ -1312,14 +1355,25 @@ app.post('/api/products/:id/photo', authenticateToken, upload.single('photo'), a
 
 app.delete('/api/products/:id/photo', authenticateToken, async (req, res) => {
     try {
+        const { id } = req.params;
+
         const { data, error } = await supabase
             .from('products')
             .update({ image_url: null })
-            .eq('id', req.params.id)
+            .eq('id', id)
             .select()
             .single();
 
         if (error) throw error;
+
+        // Clear the bucket too, otherwise "Remove" only hides the photo and keeps paying for it.
+        const { data: existing } = await supabase.storage.from('product-photos').list(id);
+        if (existing?.length) {
+            const { error: removeError } = await supabase.storage
+                .from('product-photos')
+                .remove(existing.map((f) => `${id}/${f.name}`));
+            if (removeError) console.error('Photo file cleanup failed:', removeError);
+        }
         res.json({ success: true, product: data });
     } catch (error) {
         console.error('Product photo delete error:', error);
