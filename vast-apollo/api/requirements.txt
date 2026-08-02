@@ -2,8 +2,16 @@
 # the ONNX models are committed under api/ocr_models/.
 #
 # Only the roots are pinned; uv resolves the rest. The one thing resolution must not
-# do is install a desktop OpenCV, which api/overrides.txt prevents (wired up by the
-# UV_OVERRIDE environment variable on the Vercel project).
+# do is install a desktop OpenCV.
+#
+# rapidocr requires opencv-python, the desktop build, which writes into the same cv2/
+# directory as the headless wheel — whichever lands last wins, and that order is not
+# deterministic, so identical deploys alternated between working and failing. The
+# direct file reference below satisfies that requirement with a 1KB shim carrying the
+# opencv-python name and no modules, leaving headless as the only real cv2. A direct
+# reference takes precedence over a transitive version requirement, so this settles
+# the resolution rather than racing it. See api/vendor/README.md.
+opencv-python @ file:///vercel/path0/api/vendor/opencv_python-4.14.0.94-py3-none-any.whl
 #
 # Two constraints shaped these choices, against Vercel's 500MB function limit:
 #
