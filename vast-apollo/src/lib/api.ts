@@ -208,19 +208,13 @@ export const productsApi = {
 
 export const vendorBillsApi = {
     create: async (bill: Omit<VendorBill, 'id' | 'created_at'>, products: Omit<Product, 'id' | 'created_at' | 'vendor_bill_id'>[]) => {
-        // Direct fetch — bypasses request() to avoid supabase.auth.getSession() hanging on mobile
-        let token: string | null = null;
-        try {
-            const { data: { session } } = await supabase.auth.getSession();
-            token = session?.access_token || null;
-        } catch {
-            // Fallback: read token from localStorage
-            const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-            if (key) {
-                const data = JSON.parse(localStorage.getItem(key) || '{}');
-                token = data?.access_token || null;
-            }
-        }
+        // Direct fetch rather than request(), because this sends its own shape. The token
+        // comes from getAuthToken, which races getSession against a 3s timeout: a bare
+        // getSession() can hang indefinitely — after a password change it stalls trying to
+        // renew a refresh token that is no longer valid — and awaiting it means the request
+        // below is never sent at all, leaving the save button spinning forever. Catching
+        // does not help, since hanging never throws.
+        const token = await getAuthToken();
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
