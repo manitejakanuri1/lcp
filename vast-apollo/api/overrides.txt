@@ -1,13 +1,16 @@
 # uv dependency overrides, wired up by the UV_OVERRIDE environment variable on the
-# Vercel project. Vercel installs the Python function with uv, which ignores pip's
-# PIP_NO_DEPS and did not pick up override-dependencies from uv.toml.
+# Vercel project (set to the absolute build path, /vercel/path0/api/overrides.txt —
+# uv also runs from other working directories during the build, so a relative path
+# is not found).
 #
-# rapidocr requires "opencv_python", the desktop build. That wheel installs over the
+# rapidocr requires "opencv-python", the desktop build. That wheel installs over the
 # same cv2/ directory as the headless one pinned in requirements.txt, and whichever
 # lands last wins. When the desktop build wins, cv2 fails to import on the runtime
 # with "libxcb.so.1: cannot open shared object file".
 #
-# The marker is never true, so the desktop dependency resolves to nothing and
-# opencv-python-headless ends up the only cv2 installed.
-opencv-python ; sys_platform == 'never'
-opencv-contrib-python ; sys_platform == 'never'
+# A marker that is never true does not work here: uv treats markers on an override
+# as gating whether the override applies, not as a way to drop the dependency, so
+# the real wheel gets resolved anyway. Instead the requirement is redirected to a
+# shim distribution that carries the opencv-python name and no modules at all, which
+# leaves opencv-python-headless as the only cv2 installed. See api/vendor/README.md.
+opencv-python @ file:///vercel/path0/api/vendor/opencv_python-4.14.0.94-py3-none-any.whl
