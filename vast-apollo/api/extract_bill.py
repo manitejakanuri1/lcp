@@ -431,22 +431,24 @@ class handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        """Health check — confirms the native libraries actually import."""
-        try:
-            import cv2
-            import onnxruntime
+        """Health check — imports each native library separately.
 
-            models = {
-                os.path.basename(p): os.path.exists(p) for p in MODEL_PARAMS.values()
-            }
-            self._send(200, {
-                "ok": True,
-                "cv2": cv2.__version__,
-                "onnxruntime": onnxruntime.__version__,
-                "models": models,
-            })
-        except Exception as err:  # noqa: BLE001 — report the import failure verbatim
-            self._send(500, {"ok": False, "error": f"{type(err).__name__}: {err}"})
+        A shared try block only reports the first failure, which is useless when
+        several wheels carry native code and any one of them can be the problem.
+        """
+        import importlib
+
+        report: dict[str, str] = {}
+        for name in ("numpy", "cv2", "onnxruntime", "PIL", "pypdfium2", "shapely", "rapidocr"):
+            try:
+                module = importlib.import_module(name)
+                report[name] = getattr(module, "__version__", "ok")
+            except Exception as err:  # noqa: BLE001 — the reason is the whole point
+                report[name] = f"FAILED {type(err).__name__}: {err}"
+
+        models = {os.path.basename(p): os.path.exists(p) for p in MODEL_PARAMS.values()}
+        ok = not any(v.startswith("FAILED") for v in report.values())
+        self._send(200 if ok else 500, {"ok": ok, "imports": report, "models": models})
 
     def do_POST(self):
         secret = os.environ.get("INTERNAL_API_SECRET")
