@@ -20,6 +20,24 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+/**
+ * Remove the stored Supabase session.
+ *
+ * supabase.auth.signOut() is no use here: it calls the server, and the whole reason
+ * we are in this branch is that the auth client is stuck. Clearing the key directly
+ * is what actually unsticks the next page load.
+ */
+function purgeStoredSession() {
+    try {
+        Object.keys(localStorage)
+            .filter((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
+            .forEach((k) => localStorage.removeItem(k))
+        console.warn('[Auth] Cleared a stale session — please sign in again.')
+    } catch {
+        // Private-mode storage restrictions; nothing useful to do.
+    }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
     const [user, setUser] = useState<User | null>(null)
     const [profile, setProfile] = useState<Profile | null>(null)
@@ -100,6 +118,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
         }).catch((err) => {
             console.error('Error getting session:', err)
+            // getSession stalls when the stored refresh token is no longer accepted —
+            // after a password change, for instance. It keeps retrying and never settles,
+            // which leaves every signed-in request waiting on a token that will never
+            // arrive. Drop the dead session so the next load starts from a clean login
+            // instead of limping along with it.
+            if (err instanceof Error && err.message === 'getSession timeout') {
+                purgeStoredSession()
+            }
             if (mounted) {
                 setIsLoading(false)
                 clearTimeout(timeout)

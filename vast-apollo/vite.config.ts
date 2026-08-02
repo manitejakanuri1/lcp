@@ -44,6 +44,12 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         navigateFallbackDenylist: [/^\/api\//],
+        // Without these a new build waits for every tab to close before it takes over,
+        // so an installed PWA can serve a months-old bundle indefinitely. Devices were
+        // stuck on superseded builds and not picking up fixes.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
