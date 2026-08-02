@@ -1,11 +1,10 @@
-import express from 'express';
+﻿import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
-import { GoogleGenerativeAI } from '@google/generative-ai';
 import sharp from 'sharp';
 
 // Load environment variables
@@ -19,9 +18,6 @@ const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_KEY
 );
-
-// Initialize Google Gemini client for bill image extraction
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_GEMINI_API_KEY);
 
 // Configure multer for memory storage (file upload)
 const upload = multer({
@@ -58,7 +54,7 @@ const photoUpload = multer({
 
 // Multer rejects (wrong type, file too large) throw before the route body runs. Without
 // this wrapper Express falls back to its default handler and replies with an HTML error
-// page, which the client can't parse — so the user just sees a generic "Upload failed".
+// page, which the client can't parse â€” so the user just sees a generic "Upload failed".
 const singlePhoto = (req, res, next) => {
     photoUpload.single('photo')(req, res, (err) => {
         if (!err) return next();
@@ -79,7 +75,7 @@ app.use(cors({
     credentials: true
 }));
 
-// Security middleware — configured to not break CORS preflight
+// Security middleware â€” configured to not break CORS preflight
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginOpenerPolicy: false,
@@ -1045,13 +1041,6 @@ app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
 
 app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
     try {
-        // Check if Gemini API key is configured
-        if (!process.env.GOOGLE_GEMINI_API_KEY) {
-            return res.status(500).json({
-                error: 'GOOGLE_GEMINI_API_KEY not configured. Please contact administrator to set up the API key in environment variables.'
-            });
-        }
-
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
@@ -1082,108 +1071,49 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
             return res.status(500).json({ error: 'Failed to upload image to storage' });
         }
 
-        // 2. Convert image to base64 for Gemini Vision API
-        const base64Image = imageBuffer.toString('base64');
-        const mediaType = mimeType === 'application/pdf' ? 'application/pdf' : 'image/jpeg';
+        // 2. Read the bill with the offline extractor (api/extract_bill.py). It runs
+        // in the same deployment, so the image never leaves Vercel and no API key or
+        // third-party service is involved.
+        const extractorUrl = `https://${req.headers.host}/api/extract_bill`;
 
-        // 3. Call Gemini Vision API with structured prompt
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
-
-        const prompt = `You are an expert at extracting data from Indian GST invoices and purchase bills for a saree inventory system.
-
-Analyze this bill/invoice image and extract the following information in JSON format:
-
-{
-  "vendor": {
-    "company_name": "string",
-    "gst_number": "string (15 chars, format: ##XXXXX####X#X#)",
-    "bill_number": "string",
-    "bill_date": "YYYY-MM-DD"
-  },
-  "transaction": {
-    "is_local": boolean (true if CGST+SGST, false if IGST)
-  },
-  "items": [
-    {
-      "saree_name": "string (EXACT full product name/description as written on the bill line item, including design number, brand name, variant. e.g., D.NO.-2482 VASUNDRA PATTU-1, D.NO-118 KANJIVARAM SILK, FANCY GEORGETTE D-205)",
-      "material": "string",
-      "quantity": number,
-      "cost_price": number (per piece excluding GST, use 0 if not shown on bill),
-      "hsn_code": "string (6 or 8 digits)",
-      "cost_code": "string (short 2-4 letter alphabetic code like OMV, LMP, OSV, OMP, NTV)",
-      "selling_price": number (discount/selling price per piece, NOT the MRP),
-      "discount_percent": number (discount percentage as a number, e.g. 30 for 30%)
-    }
-  ]
-}
-
-Important extraction rules:
-1. company_name: Extract full legal company name from header
-2. gst_number: Must be exactly 15 characters, format ##XXXXX####X#X# (where # is digit, X is letter)
-3. bill_date: Convert any date format to YYYY-MM-DD
-4. is_local: Check if bill shows CGST+SGST (local/intrastate) or IGST (interstate)
-5. cost_price: Extract per-piece price BEFORE tax (if total is given, divide by quantity). If cost price is not shown on the bill, use 0
-6. quantity: Number of pieces for each line item
-7. If multiple items, create separate entries in items array
-8. hsn_code: Usually 6 or 8 digits, common for textiles is 5407, 5408, 5513
-9. cost_code: Short alphabetic code (2-4 uppercase letters) often in a column labeled "Cost Code" or "Code". Examples: OMV, LMP, OSV, OMP, NTV
-10. selling_price: The discount/selling price per piece (this is NOT the MRP, it is the discounted selling price)
-11. discount_percent: The discount percentage as a number (e.g. 30 means 30%). Often in a column labeled "Discount %" or "Disc %"
-
-12. saree_name: VERY IMPORTANT - Copy the EXACT COMPLETE product name/description text from each line item on the bill. Include ALL details: design numbers (D.NO., D.NO-), brand names, variant numbers, series names. For example if the bill says "D.NO.-2482 VASUNDRA PATTU-1", the saree_name must be "D.NO.-2482 VASUNDRA PATTU-1" - do NOT shorten or summarize it.
-
-If any field is unclear or missing, use these defaults:
-- saree_name: Use the full text from the product description column on the bill
-- material: "Not specified"
-- hsn_code: "5407"
-- quantity: 1
-- cost_price: 0
-- cost_code: ""
-- selling_price: 0
-- discount_percent: 0
-
-CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap in markdown code blocks. Do NOT use \`\`\`json tags. Your response must be parseable directly as JSON.`;
-
-        const result = await model.generateContent([
-            prompt,
-            {
-                inlineData: {
-                    data: base64Image,
-                    mimeType: mediaType
-                }
-            }
-        ]);
-
-        const response = result.response;
-        const extractedText = response.text();
-
-        // 4. Parse Gemini's response
-        let extractedData;
-
+        let extractResponse;
         try {
-            // Gemini sometimes wraps JSON in markdown code blocks, so strip them
-            let cleanedText = extractedText.trim();
-
-            // Remove markdown code block if present
-            if (cleanedText.startsWith('```json')) {
-                cleanedText = cleanedText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
-            } else if (cleanedText.startsWith('```')) {
-                cleanedText = cleanedText.replace(/^```\s*/, '').replace(/\s*```$/, '');
-            }
-
-            // Try to parse JSON from response
-            const jsonMatch = cleanedText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                extractedData = JSON.parse(jsonMatch[0]);
-            } else {
-                throw new Error('No JSON found in response');
-            }
-        } catch (parseError) {
-            console.error('Failed to parse Gemini response:', extractedText);
-            return res.status(500).json({
-                error: 'Failed to extract structured data from image',
-                raw_response: extractedText
+            extractResponse = await fetch(extractorUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/octet-stream',
+                    ...(process.env.INTERNAL_API_SECRET
+                        ? { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET }
+                        : {})
+                },
+                body: imageBuffer
             });
+        } catch (fetchErr) {
+            console.error('Could not reach the bill extractor:', fetchErr);
+            return res.status(502).json({ error: 'Bill reader is unavailable. Please try again.' });
+        }
+
+        if (!extractResponse.ok) {
+            const detail = await extractResponse.text().catch(() => '');
+            console.error('Bill extractor returned', extractResponse.status, detail);
+            return res.status(502).json({ error: 'Could not read this bill. Try a clearer, straighter photo.' });
+        }
+
+        // 3. The extractor returns structured JSON directly, so there is no model
+        // prose to strip or repair before parsing.
+        let extractedData;
+        try {
+            extractedData = await extractResponse.json();
+        } catch (parseError) {
+            console.error('Bill extractor sent malformed JSON:', parseError);
+            return res.status(500).json({ error: 'Failed to extract structured data from image' });
+        }
+
+        // 4. An unfamiliar vendor layout shows up as an empty items list, so log the
+        // column names the extractor saw rather than leaving it a guess.
+        if (extractedData._debug) {
+            console.log('Bill extraction debug:', JSON.stringify(extractedData._debug));
+            delete extractedData._debug;
         }
 
         // 5. Validate and transform extracted data
@@ -1235,18 +1165,11 @@ CRITICAL: Return ONLY valid JSON that can be parsed by JSON.parse(). Do NOT wrap
         let statusCode = 500;
         let errorMessage = 'Failed to process bill image';
 
-        if (error.message && error.message.includes('GOOGLE_GEMINI_API_KEY')) {
-            statusCode = 500;
-            errorMessage = 'Google Gemini API key not configured. Please contact administrator.';
-        } else if (error.status === 401 || error.message?.includes('API key not valid') || error.message?.includes('authentication')) {
-            statusCode = 401;
-            errorMessage = 'Google Gemini API authentication failed. Check API key.';
-        } else if (error.status === 429 || error.message?.includes('rate limit') || error.message?.includes('quota')) {
-            statusCode = 429;
-            errorMessage = 'API rate limit exceeded. Please try again in a few minutes.';
-        } else if (error.message?.includes('timeout')) {
+        // Extraction runs on our own hardware now, so the old rate-limit and API-key
+        // cases are gone. A slow read is the one failure worth naming.
+        if (error.message?.includes('timeout') || error.name === 'TimeoutError') {
             statusCode = 504;
-            errorMessage = 'AI processing timeout. The bill image may be too complex or large.';
+            errorMessage = 'Reading the bill took too long. Try a smaller or clearer photo.';
         } else if (error.message) {
             errorMessage = error.message;
         }
@@ -1389,8 +1312,8 @@ app.get('/api/health', (req, res) => {
 // Start server only if not in Vercel environment
 if (process.env.NODE_ENV !== 'production') {
     app.listen(PORT, () => {
-        console.log(`🚀 Server running on http://localhost:${PORT}`);
-        console.log(`📦 API ready at http://localhost:${PORT}/api`);
+        console.log(`ðŸš€ Server running on http://localhost:${PORT}`);
+        console.log(`ðŸ“¦ API ready at http://localhost:${PORT}/api`);
     });
 }
 
