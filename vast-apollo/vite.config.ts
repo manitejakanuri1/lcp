@@ -5,6 +5,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: process.env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:3001',
+        changeOrigin: true,
+      },
+    },
+  },
+  build: {
+    target: 'es2017',
+  },
   plugins: [
     react(),
     tailwindcss(),
@@ -40,19 +51,15 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'supabase-cache',
-              expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 // 24 hours
-              }
-            }
-          }
-        ]
+        navigateFallbackDenylist: [/^\/api\//],
+        // Without these a new build waits for every tab to close before it takes over,
+        // so an installed PWA can serve a months-old bundle indefinitely. Devices were
+        // stuck on superseded builds and not picking up fixes.
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
+        // Authentication and business-data responses must never be persisted in
+        // Cache Storage; only the versioned static assets above are available offline.
       }
     })
   ],

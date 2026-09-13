@@ -2,7 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, billsApi, type Product } from '../lib/api'
-import { Html5QrcodeScanner } from 'html5-qrcode'
+import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
+import { printThermalReceipt } from '../components/ThermalReceipt'
 
 interface CartItem {
     product: Product
@@ -10,6 +11,8 @@ interface CartItem {
 }
 
 export function POS() {
+    const [billingMode, setBillingMode] = useState<'retail' | 'wholesale'>('retail')
+    const [customPrices, setCustomPrices] = useState<Record<string, number>>({})
     const [cart, setCart] = useState<CartItem[]>([])
     const [isScanning, setIsScanning] = useState(false)
     const [manualSku, setManualSku] = useState('')
@@ -21,43 +24,62 @@ export function POS() {
     const [lastBill, setLastBill] = useState<{ billNumber: string; total: number } | null>(null)
     const [lastBillData, setLastBillData] = useState<{ items: CartItem[]; customer: string; phone: string; payment: string } | null>(null)
     const [error, setError] = useState('')
-    const scannerRef = useRef<Html5QrcodeScanner | null>(null)
+    const scannerRef = useRef<Html5Qrcode | null>(null)
 
     useEffect(() => {
         return () => {
             if (scannerRef.current) {
-                scannerRef.current.clear().catch(console.error)
+                scannerRef.current.stop().catch(console.error)
             }
         }
     }, [])
 
-    const startScanner = () => {
+    const startScanner = async () => {
+        setError('')
         setIsScanning(true)
-        setTimeout(() => {
-            const scanner = new Html5QrcodeScanner(
-                'qr-reader',
-                { fps: 10, qrbox: { width: 250, height: 250 } },
-                false
-            )
 
-            scanner.render(
+        // Wait for DOM to render the video container
+        await new Promise(r => setTimeout(r, 150))
+
+        try {
+            const scanner = new Html5Qrcode('qr-reader', {
+                formatsToSupport: [
+                    Html5QrcodeSupportedFormats.CODE_128,
+                    Html5QrcodeSupportedFormats.CODE_39,
+                    Html5QrcodeSupportedFormats.EAN_13,
+                ],
+                verbose: false,
+            })
+            scannerRef.current = scanner
+
+            await scanner.start(
+                { facingMode: 'environment' },
+                {
+                    fps: 10,
+                    qrbox: (viewfinderWidth: number, viewfinderHeight: number) => ({
+                        width: Math.min(viewfinderWidth - 40, 300),
+                        height: Math.min(viewfinderHeight - 40, 100),
+                    }),
+                    aspectRatio: 1.0,
+                },
                 (decodedText) => {
                     addToCart(decodedText)
-                    scanner.clear()
+                    scanner.stop().catch(console.error)
+                    scannerRef.current = null
                     setIsScanning(false)
                 },
-                (error) => {
-                    console.log('QR scan error:', error)
-                }
+                () => {} // ignore per-frame errors
             )
-
-            scannerRef.current = scanner
-        }, 100)
+        } catch (err) {
+            console.error('Camera error:', err)
+            setError('Camera access denied. Please allow camera permission in your browser settings and try again.')
+            setIsScanning(false)
+        }
     }
 
     const stopScanner = () => {
         if (scannerRef.current) {
-            scannerRef.current.clear().catch(console.error)
+            scannerRef.current.stop().catch(console.error)
             scannerRef.current = null
         }
         setIsScanning(false)
@@ -83,9 +105,26 @@ export function POS() {
             setCart([...cart, { product: data, quantity: 1 }])
             setManualSku('')
         } catch (err) {
-            setError('Error adding product to cart')
-            console.error(err)
+            const message = err instanceof Error ? err.message : 'Unknown error'
+            setError(`Error adding product: ${message}`)
+            console.error('addToCart error:', err)
         }
+    }
+
+    const handleModeSwitch = (mode: 'retail' | 'wholesale') => {
+        if (mode !== billingMode) {
+            setBillingMode(mode)
+            setCart([])
+            setCustomPrices({})
+        }
+    }
+
+    const getItemPrice = (product: Product) => {
+        return customPrices[product.sku] ?? (billingMode === 'retail' ? product.selling_price_b : product.selling_price_b)
+    }
+
+    const updatePrice = (sku: string, price: number) => {
+        setCustomPrices({ ...customPrices, [sku]: price })
     }
 
     const removeFromCart = (sku: string) => {
@@ -102,7 +141,7 @@ export function POS() {
     }
 
     const getTotal = () => {
-        return cart.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0)
+        return cart.reduce((sum, item) => sum + getItemPrice(item.product) * item.quantity, 0)
     }
 
     const getTotalCost = () => {
@@ -143,7 +182,7 @@ export function POS() {
 
             const billItems = cart.map(item => ({
                 product_id: item.product.id,
-                selling_price: item.product.selling_price_a,
+                selling_price: getItemPrice(item.product),
                 cost_price: item.product.cost_price || 0,
                 quantity: item.quantity
             }))
@@ -165,6 +204,7 @@ export function POS() {
             // Success!
             setLastBill({ billNumber: bill.bill_number, total: bill.total_amount })
             setCart([])
+            setCustomPrices({})
             setCustomerName('')
             setCustomerPhone('')
             setIsCheckoutOpen(false)
@@ -184,148 +224,6 @@ export function POS() {
         }).format(value)
     }
 
-    const printBill = (billNumber: string, total: number, items: CartItem[], customer: string, phone: string, payment: string) => {
-        const printWindow = window.open('', '_blank')
-        if (!printWindow) return
-
-        const now = new Date()
-        const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
-        const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
-
-        const itemsHtml = items.map((item, index) => `
-            <tr>
-                <td style="border: 1px solid #333; padding: 8px; text-align: center;">${index + 1}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.saree_name || item.product.saree_type}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.sku}</td>
-                <td style="border: 1px solid #333; padding: 8px;">${item.product.material || '-'}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: center;">${item.quantity}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: right;">₹${item.product.selling_price_a.toLocaleString('en-IN')}</td>
-                <td style="border: 1px solid #333; padding: 8px; text-align: right; font-weight: bold;">₹${(item.product.selling_price_a * item.quantity).toLocaleString('en-IN')}</td>
-            </tr>
-        `).join('')
-
-        printWindow.document.write(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Invoice - ${billNumber}</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { font-family: 'Courier New', monospace; font-size: 12px; padding: 20px; background: #fff; color: #000; }
-                    .invoice { max-width: 800px; margin: 0 auto; border: 2px solid #333; }
-                    .header { text-align: center; border-bottom: 2px solid #333; padding: 15px; background: #f5f5f5; }
-                    .company-name { font-size: 24px; font-weight: bold; letter-spacing: 2px; margin-bottom: 5px; }
-                    .company-tagline { font-size: 11px; color: #666; }
-                    .invoice-title { background: #333; color: #fff; text-align: center; padding: 8px; font-size: 14px; font-weight: bold; letter-spacing: 3px; }
-                    .details-row { display: flex; border-bottom: 1px solid #333; }
-                    .details-col { flex: 1; padding: 10px; }
-                    .details-col:first-child { border-right: 1px solid #333; }
-                    .label { font-weight: bold; color: #666; font-size: 10px; text-transform: uppercase; }
-                    .value { font-size: 12px; margin-top: 3px; }
-                    table { width: 100%; border-collapse: collapse; }
-                    th { background: #eee; border: 1px solid #333; padding: 10px; text-align: left; font-size: 11px; text-transform: uppercase; }
-                    .totals { border-top: 2px solid #333; }
-                    .total-row { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #ddd; }
-                    .grand-total { background: #333; color: #fff; font-size: 16px; font-weight: bold; }
-                    .footer { text-align: center; padding: 15px; border-top: 2px solid #333; background: #f5f5f5; }
-                    .footer-text { font-size: 11px; color: #666; margin-top: 5px; }
-                    .signature { margin-top: 30px; display: flex; justify-content: space-between; padding: 0 30px; }
-                    .sig-box { text-align: center; }
-                    .sig-line { border-top: 1px solid #333; width: 150px; margin-top: 40px; padding-top: 5px; }
-                    @media print { body { padding: 0; } .invoice { border: none; } }
-                </style>
-            </head>
-            <body>
-                <div class="invoice">
-                    <div class="header">
-                        <div class="company-name">LAKSHMI SAREE MANDIR</div>
-                        <div class="company-tagline">Premium Sarees & Traditional Wear</div>
-                    </div>
-                    
-                    <div class="invoice-title">TAX INVOICE</div>
-                    
-                    <div class="details-row">
-                        <div class="details-col">
-                            <div class="label">Invoice No.</div>
-                            <div class="value" style="font-weight: bold; font-size: 14px;">${billNumber}</div>
-                        </div>
-                        <div class="details-col">
-                            <div class="label">Date & Time</div>
-                            <div class="value">${dateStr} | ${timeStr}</div>
-                        </div>
-                    </div>
-                    
-                    <div class="details-row">
-                        <div class="details-col">
-                            <div class="label">Customer Name</div>
-                            <div class="value">${customer || 'Walk-in Customer'}</div>
-                        </div>
-                        <div class="details-col">
-                            <div class="label">Phone / Payment</div>
-                            <div class="value">${phone || '-'} | ${payment.toUpperCase()}</div>
-                        </div>
-                    </div>
-                    
-                    <table>
-                        <thead>
-                            <tr>
-                                <th style="width: 40px; text-align: center;">S.No</th>
-                                <th>Particulars</th>
-                                <th style="width: 100px;">SKU</th>
-                                <th style="width: 80px;">Material</th>
-                                <th style="width: 50px; text-align: center;">Qty</th>
-                                <th style="width: 90px; text-align: right;">Rate</th>
-                                <th style="width: 100px; text-align: right;">Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHtml}
-                        </tbody>
-                    </table>
-                    
-                    <div class="totals">
-                        <div class="total-row">
-                            <span>Sub Total</span>
-                            <span>₹${items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row">
-                            <span>CGST (2.5%)</span>
-                            <span>₹${Math.round(items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0) * 0.025).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row">
-                            <span>SGST (2.5%)</span>
-                            <span>₹${Math.round(items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0) * 0.025).toLocaleString('en-IN')}</span>
-                        </div>
-                        <div class="total-row grand-total">
-                            <span>GRAND TOTAL</span>
-                            <span>₹${total.toLocaleString('en-IN')}</span>
-                        </div>
-                    </div>
-                    
-                    <div class="signature">
-                        <div class="sig-box">
-                            <div class="sig-line">Customer Signature</div>
-                        </div>
-                        <div class="sig-box">
-                            <div class="sig-line">Authorized Signature</div>
-                        </div>
-                    </div>
-                    
-                    <div class="footer">
-                        <div style="font-weight: bold;">Thank you for shopping with us!</div>
-                        <div class="footer-text">Goods once sold will not be taken back or exchanged.</div>
-                        <div class="footer-text">Subject to local jurisdiction.</div>
-                    </div>
-                </div>
-                
-                <script>
-                    window.onload = function() { window.print(); }
-                </script>
-            </body>
-            </html>
-        `)
-        printWindow.document.close()
-    }
 
     return (
         <Layout>
@@ -333,7 +231,26 @@ export function POS() {
                 {/* Header */}
                 <div className="mb-6">
                     <h1 className="text-2xl font-bold text-[var(--color-text)]">Point of Sale</h1>
-                    <p className="text-[var(--color-text-muted)]">Scan items to add to cart</p>
+                    <p className="text-[var(--color-text-muted)]">Scan product barcode to add to cart</p>
+                </div>
+
+                {/* Billing Mode Toggle */}
+                <div className="mb-6">
+                    <label className="block text-sm font-medium text-[var(--color-text)] mb-2">Billing Mode</label>
+                    <div className="flex gap-2">
+                        {(['retail', 'wholesale'] as const).map((mode) => (
+                            <button
+                                key={mode}
+                                onClick={() => handleModeSwitch(mode)}
+                                className={`flex-1 py-2.5 rounded-lg font-medium capitalize transition-all ${billingMode === mode
+                                    ? 'bg-[var(--color-primary)] text-white'
+                                    : 'bg-[var(--color-surface-elevated)] border border-[var(--color-border)] text-[var(--color-text)]'
+                                    }`}
+                            >
+                                {mode === 'retail' ? 'Retail (Price A)' : 'Wholesale (Price B)'}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Success Message */}
@@ -341,7 +258,7 @@ export function POS() {
                     <div className="mb-6 p-4 rounded-xl bg-green-500/10 border border-green-500/20">
                         <div className="flex items-center justify-between mb-3">
                             <div>
-                                <p className="text-green-500 font-medium">Bill #{lastBill.billNumber} created!</p>
+                                <p className="text-[var(--color-success-text)] font-medium">Bill #{lastBill.billNumber} created!</p>
                                 <p className="text-sm text-[var(--color-text-muted)]">Total: {formatCurrency(lastBill.total)}</p>
                             </div>
                             <Button variant="ghost" onClick={() => { setLastBill(null); setLastBillData(null); }}>✕</Button>
@@ -350,9 +267,9 @@ export function POS() {
                             <Button
                                 variant="primary"
                                 fullWidth
-                                onClick={() => printBill(lastBill.billNumber, lastBill.total, lastBillData.items, lastBillData.customer, lastBillData.phone, lastBillData.payment)}
+                                onClick={() => printThermalReceipt(lastBill.billNumber, lastBill.total, lastBillData.items, lastBillData.customer, lastBillData.phone, lastBillData.payment)}
                             >
-                                🖨️ Print Invoice (Tally Style)
+                                Print Receipt (MD80)
                             </Button>
                         )}
                     </div>
@@ -361,16 +278,16 @@ export function POS() {
                 {/* Error Message */}
                 {error && (
                     <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/20 flex items-center justify-between">
-                        <p className="text-red-500">{error}</p>
+                        <p className="text-[var(--color-danger-text)]">{error}</p>
                         <Button variant="ghost" onClick={() => setError('')}>✕</Button>
                     </div>
                 )}
 
                 {/* Scanner Section */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-6 mb-6">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-5 mb-6">
                     {isScanning ? (
                         <div>
-                            <div id="qr-reader" className="mb-4 rounded-xl overflow-hidden" />
+                            <div id="qr-reader" className="mb-4 rounded-xl overflow-hidden" style={{ minHeight: '300px' }} />
                             <Button variant="secondary" fullWidth onClick={stopScanner}>
                                 Cancel Scanning
                             </Button>
@@ -383,7 +300,7 @@ export function POS() {
                                 fullWidth
                                 onClick={startScanner}
                             >
-                                📷 Scan QR Code
+                                Scan Barcode
                             </Button>
 
                             <div className="relative">
@@ -410,15 +327,14 @@ export function POS() {
                 </div>
 
                 {/* Cart */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl overflow-hidden">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl overflow-hidden">
                     <div className="p-4 border-b border-[var(--color-border)]">
                         <h2 className="font-semibold text-[var(--color-text)]">Cart ({cart.length} items, {getTotalQuantity()} qty)</h2>
                     </div>
 
                     {cart.length === 0 ? (
                         <div className="p-8 text-center text-[var(--color-text-muted)]">
-                            <p className="text-4xl mb-2">🛒</p>
-                            <p>Scan items to add them here</p>
+                            <p className="text-sm">Scan items to add them here</p>
                         </div>
                     ) : (
                         <>
@@ -427,17 +343,24 @@ export function POS() {
                                     <div key={item.product.sku} className="p-4">
                                         <div className="flex items-start justify-between mb-2">
                                             <div>
-                                                <p className="font-mono text-sm text-indigo-500">{item.product.sku}</p>
+                                                <p className="font-mono text-sm text-[var(--color-accent-text)]">{item.product.sku}</p>
                                                 <p className="text-[var(--color-text)]">
-                                                    {item.product.saree_type} • {item.product.material}
+                                                    {item.product.saree_name || 'Unnamed'}{item.product.material ? ` • ${item.product.material}` : ''}
                                                 </p>
-                                                <p className="text-xs text-[var(--color-text-muted)]">
-                                                    Stock: {item.product.quantity || 1} | Price: {formatCurrency(item.product.selling_price_a)}
-                                                </p>
+                                                <div className="flex items-center gap-1 text-xs text-[var(--color-text-muted)]">
+                                                    <span>Stock: {item.product.quantity || 1} | Price: ₹</span>
+                                                    <input
+                                                        type="number"
+                                                        value={getItemPrice(item.product)}
+                                                        onChange={(e) => updatePrice(item.product.sku, parseFloat(e.target.value) || 0)}
+                                                        className="w-20 h-6 text-center rounded bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)] text-xs"
+                                                        min="0"
+                                                    />
+                                                </div>
                                             </div>
                                             <button
                                                 onClick={() => removeFromCart(item.product.sku)}
-                                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
+                                                className="p-2 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded-lg transition-colors"
                                             >
                                                 ✕
                                             </button>
@@ -467,7 +390,7 @@ export function POS() {
                                                 </button>
                                             </div>
                                             <p className="font-semibold text-[var(--color-text)]">
-                                                {formatCurrency(item.product.selling_price_a * item.quantity)}
+                                                {formatCurrency(getItemPrice(item.product) * item.quantity)}
                                             </p>
                                         </div>
                                     </div>
@@ -537,14 +460,11 @@ export function POS() {
                                         className={`
                       flex-1 py-3 rounded-xl font-medium capitalize transition-all
                       ${paymentMethod === method
-                                                ? 'bg-gradient-to-r from-indigo-500 to-purple-500 text-white'
+                                                ? 'bg-[var(--color-primary)] text-white'
                                                 : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text)]'
                                             }
                     `}
                                     >
-                                        {method === 'cash' && '💵 '}
-                                        {method === 'card' && '💳 '}
-                                        {method === 'upi' && '📱 '}
                                         {method}
                                     </button>
                                 ))}

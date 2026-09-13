@@ -3,7 +3,13 @@ import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
 import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
-import { QRCodeSVG } from 'qrcode.react'
+import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
+import { ProductThumbnail } from '../components/inventory/ProductThumbnail'
+import { PhotoPicker } from '../components/inventory/PhotoPicker'
+import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
+import { BarcodeDisplay } from '../components/BarcodeDisplay'
+import { ProductCodeModal } from '../components/ProductCodeModal'
+
 import { v4 as uuidv4 } from 'uuid'
 
 export function Inventory() {
@@ -16,8 +22,12 @@ export function Inventory() {
     const dateInputRef = useRef<HTMLInputElement>(null)
     const [isEditMode, setIsEditMode] = useState(false)
     const [editFormData, setEditFormData] = useState<Partial<Product>>({})
+    const [editDiscountPercent, setEditDiscountPercent] = useState('')
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
+    const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
+    // Held until the product exists, then uploaded against its new id.
+    const [newProductPhoto, setNewProductPhoto] = useState<File | null>(null)
 
     // Form state
     const [formData, setFormData] = useState({
@@ -28,13 +38,12 @@ export function Inventory() {
         cost_code: '',
         selling_price_a: '',
         selling_price_b: '',
-        selling_price_c: '',
+        discount_percent: '',
         saree_name: '',
-        saree_type: '',
         material: '',
         color: '',
         quantity: '1',
-
+        saree_type: '',
     })
 
     useEffect(() => {
@@ -59,6 +68,15 @@ export function Inventory() {
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
+
+        // Checked here rather than by the `required` attribute so the reason is stated
+        // outright — a browser validation bubble on a field scrolled out of the modal is
+        // invisible, and the save button just looks broken.
+        if (!formData.saree_type) {
+            alert('Choose a Website Category before saving.\n\nIt decides which section of the website this saree appears in.')
+            return
+        }
+
         setIsSubmitting(true)
 
         try {
@@ -72,18 +90,29 @@ export function Inventory() {
                 selling_price: parseFloat(formData.selling_price_a), // Backwards compatibility
                 selling_price_a: parseFloat(formData.selling_price_a),
                 selling_price_b: parseFloat(formData.selling_price_b),
-                selling_price_c: parseFloat(formData.selling_price_c),
                 saree_name: formData.saree_name,
-                saree_type: formData.saree_type,
                 material: formData.material,
                 color: formData.color || null,
+                saree_type: formData.saree_type,
                 quantity: parseInt(formData.quantity) || 1,
                 rack_location: null,
                 status: 'available' as const,
                 vendor_bill_id: null // Manual entry has no bill
             }
 
-            await productsApi.create(newProduct)
+            const created = await productsApi.create(newProduct)
+
+            // The product now has an id, so the photo held by PhotoPicker can be attached.
+            // A failure here must not read as "nothing saved" — the product is already in.
+            if (newProductPhoto) {
+                try {
+                    await productsApi.uploadPhoto(created.id, newProductPhoto)
+                } catch (photoErr) {
+                    console.error('Error uploading product photo:', photoErr)
+                    const reason = photoErr instanceof Error ? photoErr.message : 'unknown error'
+                    alert(`Product added, but the photo failed to upload: ${reason}\n\nOpen the product to add it again.`)
+                }
+            }
 
             // Reset form and refresh
             setFormData({
@@ -94,18 +123,19 @@ export function Inventory() {
                 cost_code: '',
                 selling_price_a: '',
                 selling_price_b: '',
-                selling_price_c: '',
+                discount_percent: '',
                 saree_name: '',
-                saree_type: '',
                 material: '',
                 color: '',
                 quantity: '1',
-
+                saree_type: '',
             })
+            setNewProductPhoto(null)
             setIsModalOpen(false)
             fetchProducts()
         } catch (err) {
             console.error('Error adding product:', err)
+            alert(err instanceof Error ? err.message : 'Error adding product')
         } finally {
             setIsSubmitting(false)
         }
@@ -113,8 +143,8 @@ export function Inventory() {
 
     const filteredProducts = products.filter((p) =>
         p.sku.toLowerCase().includes(filter.toLowerCase()) ||
-        p.saree_type.toLowerCase().includes(filter.toLowerCase()) ||
-        p.material.toLowerCase().includes(filter.toLowerCase()) ||
+        (p.saree_name && p.saree_name.toLowerCase().includes(filter.toLowerCase())) ||
+        (p.material && p.material.toLowerCase().includes(filter.toLowerCase())) ||
         (p.color && p.color.toLowerCase().includes(filter.toLowerCase()))
     )
 
@@ -135,13 +165,13 @@ export function Inventory() {
             cost_code: product.cost_code,
             selling_price_a: product.selling_price_a,
             selling_price_b: product.selling_price_b,
-            selling_price_c: product.selling_price_c,
             saree_name: product.saree_name,
-            saree_type: product.saree_type,
             material: product.material,
+            saree_type: product.saree_type,
             quantity: product.quantity,
             rack_location: product.rack_location
         })
+        setEditDiscountPercent('')
         setIsEditMode(true)
     }
 
@@ -192,11 +222,12 @@ export function Inventory() {
                         </p>
                     </div>
                     <div className="flex gap-2">
+
                         <Button variant="secondary" onClick={() => setIsPurchaseModalOpen(true)}>
-                            📥 Stock In
+                            Stock In
                         </Button>
                         <Button variant="primary" onClick={() => setIsModalOpen(true)}>
-                            + Add Product
+                            Add Product
                         </Button>
                     </div>
                 </div>
@@ -213,7 +244,7 @@ export function Inventory() {
                 {/* Products Grid */}
                 {isLoading ? (
                     <div className="flex justify-center py-12">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-12 h-12 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
                     </div>
                 ) : filteredProducts.length === 0 ? (
                     <div className="text-center py-12">
@@ -224,40 +255,57 @@ export function Inventory() {
                         {filteredProducts.map((product) => (
                             <div
                                 key={product.id}
-                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 hover:shadow-lg transition-shadow cursor-pointer"
+                                className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 hover:shadow-md transition-shadow cursor-pointer"
                                 onClick={() => setSelectedProduct(product)}
                             >
-                                <div className="flex gap-4">
-                                    {/* QR Code */}
-                                    <div className="w-20 h-20 bg-white rounded-lg flex items-center justify-center shrink-0">
-                                        <QRCodeSVG value={product.sku} size={72} level="M" />
+                                <div className="flex flex-col gap-3">
+                                    {/* Photo shown on the storefront */}
+                                    <ProductThumbnail
+                                        imageUrl={product.image_url}
+                                        alt={product.saree_name || product.sku}
+                                        className="w-full h-44 rounded-lg"
+                                    />
+
+                                    {/* Barcode */}
+                                    <div className="bg-white rounded-lg p-2 flex items-center justify-center">
+                                        <BarcodeDisplay
+                                            value={product.sku}
+                                            width={1.5}
+                                            height={40}
+                                            format="CODE128"
+                                            displayValue={true}
+                                            fontSize={12}
+                                        />
                                     </div>
 
                                     {/* Details */}
                                     <div className="flex-1 min-w-0">
                                         <div className="flex items-center gap-2 mb-1">
-                                            <span className="font-mono text-sm font-bold text-indigo-500">{product.sku}</span>
+                                            <span className="font-mono text-sm font-bold text-[var(--color-accent-text)]">{product.sku}</span>
                                             <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${product.status === 'available'
-                                                ? 'bg-green-500/10 text-green-500'
-                                                : 'bg-red-500/10 text-red-500'
+                                                ? 'bg-green-500/10 text-[var(--color-success-text)]'
+                                                : 'bg-red-500/10 text-[var(--color-danger-text)]'
                                                 }`}>
                                                 {product.status}
                                             </span>
                                             {product.quantity > 1 && (
-                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500">
+                                                <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-[var(--color-info-text)]">
                                                     Qty: {product.quantity}
                                                 </span>
                                             )}
                                         </div>
                                         <p className="text-[var(--color-text)] font-medium truncate">
-                                            {product.saree_type} • {product.material}
+                                            {product.saree_name || 'Unnamed'}{product.material ? ` • ${product.material}` : ''}
+                                        </p>
+                                        <p className="text-xs text-[var(--color-text-muted)]">
+                                            Website: {categoryLabel(product.saree_type)}
                                         </p>
                                         {product.color && (
                                             <p className="text-sm text-[var(--color-text-muted)]">{product.color}</p>
                                         )}
-                                        <div className="flex gap-4 mt-2 text-sm">
-                                            <span className="text-red-500">Cost: {formatCurrency(product.cost_price)}</span>
-                                            <span className="text-green-500">Sell: {formatCurrency(product.selling_price_a)}</span>
+                                        <div className="flex gap-4 mt-1 text-sm">
+                                            <span className="text-[var(--color-danger-text)]">Cost: {formatCurrency(product.cost_price)}</span>
+                                            <span className="text-[var(--color-success-text)]">Sell: {formatCurrency(product.selling_price_a)}</span>
                                         </div>
                                     </div>
                                 </div>
@@ -267,7 +315,7 @@ export function Inventory() {
                 )}
 
                 {/* Add Product Modal */}
-                <Modal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} title="Add New Product" size="lg">
+                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="lg">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
@@ -310,9 +358,9 @@ export function Inventory() {
                                     <button
                                         type="button"
                                         onClick={() => dateInputRef.current?.showPicker()}
-                                        className="px-4 py-3 bg-indigo-500 text-white rounded-xl hover:bg-indigo-600 transition-colors"
+                                        className="px-4 py-3 bg-[var(--color-primary)] text-white rounded-lg hover:bg-[var(--color-primary-hover)] transition-colors text-sm"
                                     >
-                                        📅
+                                        Pick
                                     </button>
                                 </div>
                             </div>
@@ -339,18 +387,10 @@ export function Inventory() {
                                 required
                             />
                             <Input
-                                label="Saree Type"
-                                placeholder="e.g., Banarasi, Kanjeevaram"
-                                value={formData.saree_type}
-                                onChange={(e) => setFormData({ ...formData, saree_type: e.target.value })}
-                                required
-                            />
-                            <Input
-                                label="Material"
+                                label="Material (optional)"
                                 placeholder="e.g., Silk, Cotton"
                                 value={formData.material}
                                 onChange={(e) => setFormData({ ...formData, material: e.target.value })}
-                                required
                             />
                             <Input
                                 type="number"
@@ -361,11 +401,30 @@ export function Inventory() {
                                 min="1"
                             />
 
+                            {/* Decides where the saree sits on the website. Without it the
+                                site guesses from the name, and never picks Langavoni. */}
+                            <div className="w-full">
+                                <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                    Website Category
+                                </label>
+                                <select
+                                    value={formData.saree_type}
+                                    onChange={(e) => setFormData({ ...formData, saree_type: e.target.value })}
+                                    className={`w-full px-4 py-3 text-base bg-[var(--color-surface)] border rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
+                                        formData.saree_type ? 'border-[var(--color-border)]' : 'border-amber-500'
+                                    }`}
+                                >
+                                    <option value="">Select a category…</option>
+                                    {SAREE_CATEGORIES.map((c) => (
+                                        <option key={c.id} value={c.id}>{c.label}</option>
+                                    ))}
+                                </select>
+                            </div>
                         </div>
 
                         {/* Selling Prices Section */}
                         <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                            <h4 className="text-sm font-semibold text-green-500 mb-3">💰 Selling Prices (₹)</h4>
+                            <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">Selling Prices</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <Input
                                     type="number"
@@ -380,28 +439,53 @@ export function Inventory() {
                                     type="number"
                                     label="Discount Price"
                                     value={formData.selling_price_b}
-                                    onChange={(e) => setFormData({ ...formData, selling_price_b: e.target.value })}
+                                    onChange={(e) => {
+                                        const discPrice = e.target.value
+                                        const pct = parseFloat(formData.discount_percent)
+                                        const updated: typeof formData = { ...formData, selling_price_b: discPrice }
+                                        if (discPrice && pct > 0 && pct < 100) {
+                                            updated.selling_price_a = Math.round(parseFloat(discPrice) / (1 - pct / 100)).toString()
+                                        }
+                                        setFormData(updated)
+                                    }}
                                     required
                                     min="0"
                                     step="0.01"
                                 />
                                 <Input
                                     type="number"
-                                    label="Price C (Special)"
-                                    value={formData.selling_price_c}
-                                    onChange={(e) => setFormData({ ...formData, selling_price_c: e.target.value })}
-                                    required
+                                    label="Disc %"
+                                    value={formData.discount_percent}
+                                    onChange={(e) => {
+                                        const pct = e.target.value
+                                        const discPrice = parseFloat(formData.selling_price_b)
+                                        const updated: typeof formData = { ...formData, discount_percent: pct }
+                                        if (pct && discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                            updated.selling_price_a = Math.round(discPrice / (1 - parseFloat(pct) / 100)).toString()
+                                        }
+                                        setFormData(updated)
+                                    }}
                                     min="0"
-                                    step="0.01"
+                                    max="99"
+                                    step="0.1"
+                                    placeholder="%"
                                 />
                             </div>
                         </div>
+
+                        {/* Uploaded straight after the product is created, in one save */}
+                        <PhotoPicker
+                            file={newProductPhoto}
+                            onChange={setNewProductPhoto}
+                            disabled={isSubmitting}
+                        />
+
                         <div className="flex gap-3 pt-4">
-                            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)}>
+                            <Button type="button" variant="secondary" onClick={() => { setIsModalOpen(false); setNewProductPhoto(null) }}>
                                 Cancel
                             </Button>
                             <Button type="submit" variant="primary" loading={isSubmitting}>
-                                Add Product
+                                {newProductPhoto ? 'Add Product & Photo' : 'Add Product'}
                             </Button>
                         </div>
                     </form>
@@ -416,24 +500,23 @@ export function Inventory() {
                 >
                     {selectedProduct && !isEditMode && (
                         <div className="space-y-6">
-                            {/* QR Code for printing */}
+                            {/* Barcode Preview */}
                             <div className="flex justify-center">
-                                <div id="qr-code-label" className="bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300" style={{ width: '280px' }}>
-                                    {/* Shop Name Header */}
+                                <div className="bg-white p-6 rounded-xl shadow-lg border-2 border-gray-300">
                                     <div className="text-center mb-3 pb-3 border-b-2 border-gray-300">
                                         <h2 className="text-xl font-bold" style={{ color: '#000' }}>Lakshmi Saree Mandir</h2>
                                     </div>
-
-                                    {/* QR Code */}
                                     <div className="flex justify-center mb-3">
-                                        <QRCodeSVG value={selectedProduct.sku} size={140} level="H" />
+                                        <BarcodeDisplay
+                                            value={selectedProduct.sku}
+                                            width={2}
+                                            height={60}
+                                            format="CODE128"
+                                            displayValue={true}
+                                            fontSize={16}
+                                        />
                                     </div>
-
-                                    {/* SKU */}
-                                    <p className="text-center font-mono font-bold text-gray-800 text-sm mb-3">{selectedProduct.sku}</p>
-
-                                    {/* Price Section */}
-                                    <div className="grid grid-cols-2 gap-2">
+                                    <div className="grid grid-cols-2 gap-2 mt-4">
                                         <div className="bg-gradient-to-r from-green-500 to-green-600 text-white px-3 py-2 rounded-lg text-center">
                                             <p className="text-xs font-semibold">MRP</p>
                                             <p className="text-xl font-bold">₹{selectedProduct.selling_price_a}</p>
@@ -446,51 +529,36 @@ export function Inventory() {
                                 </div>
                             </div>
 
-                            {/* Print Button */}
-                            <div className="flex justify-center">
-                                <Button
-                                    variant="primary"
-                                    onClick={() => window.print()}
-                                >
-                                    🖨️ Print QR Code Label
-                                </Button>
-                            </div>
-
                             <div className="grid grid-cols-2 gap-4 text-sm">
                                 <div>
-                                    <p className="text-[var(--color-text-muted)]">Type</p>
-                                    <p className="font-medium">{selectedProduct.saree_type}</p>
+                                    <p className="text-[var(--color-text-muted)]">Saree Name</p>
+                                    <p className="font-medium">{selectedProduct.saree_name || 'Unnamed'}</p>
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Material</p>
-                                    <p className="font-medium">{selectedProduct.material}</p>
+                                    <p className="font-medium">{selectedProduct.material || '-'}</p>
                                 </div>
-
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Quantity</p>
                                     <p className="font-medium">{selectedProduct.quantity}</p>
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Cost Price</p>
-                                    <p className="font-medium text-red-500">{formatCurrency(selectedProduct.cost_price)}</p>
+                                    <p className="font-medium text-[var(--color-danger-text)]">{formatCurrency(selectedProduct.cost_price)}</p>
                                 </div>
                             </div>
 
                             {/* Selling Prices */}
                             <div className="p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
-                                <h4 className="text-sm font-semibold text-green-500 mb-3">💰 Selling Prices</h4>
-                                <div className="grid grid-cols-3 gap-4 text-sm">
+                                <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">Selling Prices</h4>
+                                <div className="grid grid-cols-2 gap-4 text-sm">
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">MRP</p>
-                                        <p className="font-medium text-green-500">{formatCurrency(selectedProduct.selling_price_a)}</p>
+                                        <p className="font-medium text-[var(--color-success-text)]">{formatCurrency(selectedProduct.selling_price_a)}</p>
                                     </div>
                                     <div>
                                         <p className="text-[var(--color-text-muted)]">Discount Price</p>
-                                        <p className="font-medium text-blue-500">{formatCurrency(selectedProduct.selling_price_b)}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-[var(--color-text-muted)]">Price C</p>
-                                        <p className="font-medium text-purple-500">{formatCurrency(selectedProduct.selling_price_c)}</p>
+                                        <p className="font-medium text-[var(--color-info-text)]">{formatCurrency(selectedProduct.selling_price_b)}</p>
                                     </div>
                                 </div>
                             </div>
@@ -506,43 +574,34 @@ export function Inventory() {
                                 </div>
                                 <div>
                                     <p className="text-[var(--color-text-muted)]">Status</p>
-                                    <p className={`font-medium ${selectedProduct.status === 'available' ? 'text-green-500' : 'text-red-500'}`}>
+                                    <p className={`font-medium ${selectedProduct.status === 'available' ? 'text-[var(--color-success-text)]' : 'text-[var(--color-danger-text)]'}`}>
                                         {selectedProduct.status}
                                     </p>
                                 </div>
                             </div>
 
+                            {/* Photo shown on the storefront */}
+                            <ProductPhotoUpload
+                                productId={selectedProduct.id}
+                                currentImageUrl={selectedProduct.image_url ?? null}
+                                onPhotoChanged={(imageUrl) => {
+                                    setSelectedProduct({ ...selectedProduct, image_url: imageUrl })
+                                    setProducts((prev) => prev.map((p) =>
+                                        p.id === selectedProduct.id ? { ...p, image_url: imageUrl } : p
+                                    ))
+                                }}
+                            />
+
+                            {/* Single Barcode Button */}
                             <Button
-                                variant="secondary"
+                                variant="primary"
                                 fullWidth
                                 onClick={() => {
-                                    // Print QR label
-                                    const printWindow = window.open('', '_blank')
-                                    if (printWindow) {
-                                        printWindow.document.write(`
-                      <html>
-                        <head>
-                          <title>Print QR - ${selectedProduct.sku}</title>
-                          <style>
-                            body { display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
-                            .label { text-align: center; padding: 10mm; }
-                            .sku { font-family: monospace; font-weight: bold; margin-top: 5mm; font-size: 14pt; }
-                          </style>
-                        </head>
-                        <body>
-                          <div class="label">
-                            <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${selectedProduct.sku}" />
-                            <div class="sku">${selectedProduct.sku}</div>
-                          </div>
-                          <script>window.onload = () => { window.print(); window.close(); }</script>
-                        </body>
-                      </html>
-                    `)
-                                        printWindow.document.close()
-                                    }
+                                    setBarcodeModalProduct(selectedProduct)
+                                    setSelectedProduct(null)
                                 }}
                             >
-                                🖨️ Print QR Label
+                                View & Print Barcode
                             </Button>
 
                             <div className="flex gap-3 mt-3">
@@ -551,16 +610,16 @@ export function Inventory() {
                                     fullWidth
                                     onClick={() => handleEdit(selectedProduct)}
                                 >
-                                    ✏️ Edit
+                                    Edit
                                 </Button>
                                 <Button
                                     variant="secondary"
                                     fullWidth
                                     onClick={() => handleDelete(selectedProduct)}
                                     loading={isDeleting}
-                                    className="!bg-red-500/10 !text-red-500 hover:!bg-red-500/20"
+                                    className="!bg-red-500/10 !text-[var(--color-danger-text)] hover:!bg-red-500/20"
                                 >
-                                    🗑️ Delete
+                                    Delete
                                 </Button>
                             </div>
                         </div>
@@ -585,11 +644,6 @@ export function Inventory() {
                                     label="Saree Name"
                                     value={editFormData.saree_name || ''}
                                     onChange={(e) => setEditFormData({ ...editFormData, saree_name: e.target.value })}
-                                />
-                                <Input
-                                    label="Saree Type"
-                                    value={editFormData.saree_type || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, saree_type: e.target.value })}
                                 />
                                 <Input
                                     label="Material"
@@ -617,13 +671,32 @@ export function Inventory() {
                                     type="number"
                                     label="Discount Price (₹)"
                                     value={editFormData.selling_price_b?.toString() || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, selling_price_b: parseFloat(e.target.value) })}
+                                    onChange={(e) => {
+                                        const discPrice = parseFloat(e.target.value)
+                                        const pct = parseFloat(editDiscountPercent)
+                                        const updated = { ...editFormData, selling_price_b: discPrice }
+                                        if (discPrice > 0 && pct > 0 && pct < 100) {
+                                            updated.selling_price_a = Math.round(discPrice / (1 - pct / 100))
+                                        }
+                                        setEditFormData(updated)
+                                    }}
                                 />
                                 <Input
                                     type="number"
-                                    label="Price C (₹)"
-                                    value={editFormData.selling_price_c?.toString() || ''}
-                                    onChange={(e) => setEditFormData({ ...editFormData, selling_price_c: parseFloat(e.target.value) })}
+                                    label="Disc %"
+                                    value={editDiscountPercent}
+                                    onChange={(e) => {
+                                        const pct = e.target.value
+                                        setEditDiscountPercent(pct)
+                                        const discPrice = editFormData.selling_price_b
+                                        if (discPrice && discPrice > 0 && parseFloat(pct) > 0 && parseFloat(pct) < 100) {
+                                            setEditFormData({ ...editFormData, selling_price_a: Math.round(discPrice / (1 - parseFloat(pct) / 100)) })
+                                        }
+                                    }}
+                                    min="0"
+                                    max="99"
+                                    step="0.1"
+                                    placeholder="%"
                                 />
                                 <Input
                                     type="number"
@@ -632,6 +705,22 @@ export function Inventory() {
                                     value={editFormData.quantity?.toString() || ''}
                                     onChange={(e) => setEditFormData({ ...editFormData, quantity: e.target.value ? parseInt(e.target.value) : undefined })}
                                 />
+                                {/* Lets an existing saree be re-filed without opening the website admin */}
+                                <div className="w-full">
+                                    <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                        Website Category
+                                    </label>
+                                    <select
+                                        value={editFormData.saree_type || ''}
+                                        onChange={(e) => setEditFormData({ ...editFormData, saree_type: e.target.value || null })}
+                                        className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                    >
+                                        <option value="">Auto (guessed from name)</option>
+                                        {SAREE_CATEGORIES.map((c) => (
+                                            <option key={c.id} value={c.id}>{c.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                             <div className="flex gap-3 pt-4">
                                 <Button
@@ -647,7 +736,7 @@ export function Inventory() {
                                     onClick={handleUpdate}
                                     loading={isSubmitting}
                                 >
-                                    💾 Save Changes
+                                    Save Changes
                                 </Button>
                             </div>
                         </div>
@@ -659,6 +748,16 @@ export function Inventory() {
                     onClose={() => setIsPurchaseModalOpen(false)}
                     onSuccess={fetchProducts}
                 />
+
+                {/* Barcode Modal */}
+                {barcodeModalProduct && (
+                    <ProductCodeModal
+                        isOpen={!!barcodeModalProduct}
+                        onClose={() => setBarcodeModalProduct(null)}
+                        product={barcodeModalProduct}
+                    />
+                )}
+
             </div>
         </Layout>
     )

@@ -6,10 +6,10 @@ import { productsApi, type Product } from '../lib/api'
 export function Search() {
     const [products, setProducts] = useState<Product[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    const [error, setError] = useState<string | null>(null)
     const [searchTerm, setSearchTerm] = useState('')
     const [filters, setFilters] = useState({
         vendor: '',
-        type: '',
         saree_name: '',
         minPrice: '',
         maxPrice: ''
@@ -17,12 +17,12 @@ export function Search() {
 
     const fetchProducts = async () => {
         setIsLoading(true)
+        setError(null)
         try {
             const data = await productsApi.getAll({
                 status: 'available',
                 search: searchTerm || undefined,
                 vendor: filters.vendor || undefined,
-                type: filters.type || undefined,
                 saree_name: filters.saree_name || undefined,
                 minPrice: filters.minPrice || undefined,
                 maxPrice: filters.maxPrice || undefined
@@ -30,6 +30,7 @@ export function Search() {
             setProducts(data || [])
         } catch (err) {
             console.error('Error searching products:', err)
+            setError('Failed to search products. Please try again.')
         } finally {
             setIsLoading(false)
         }
@@ -54,7 +55,7 @@ export function Search() {
 
     const clearFilters = () => {
         setSearchTerm('')
-        setFilters({ vendor: '', type: '', saree_name: '', minPrice: '', maxPrice: '' })
+        setFilters({ vendor: '', saree_name: '', minPrice: '', maxPrice: '' })
     }
 
     return (
@@ -76,12 +77,12 @@ export function Search() {
                 </div>
 
                 {/* Filters */}
-                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-2xl p-4 mb-6">
+                <div className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 mb-6">
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="font-medium text-[var(--color-text)]">Filters</h3>
                         <button
                             onClick={clearFilters}
-                            className="text-sm text-indigo-500 hover:underline"
+                            className="text-sm text-[var(--color-primary)] hover:underline"
                         >
                             Clear all
                         </button>
@@ -96,11 +97,6 @@ export function Search() {
                             placeholder="Saree Name"
                             value={filters.saree_name}
                             onChange={(e) => setFilters({ ...filters, saree_name: e.target.value })}
-                        />
-                        <Input
-                            placeholder="Type (e.g., Banarasi)"
-                            value={filters.type}
-                            onChange={(e) => setFilters({ ...filters, type: e.target.value })}
                         />
                         <Input
                             type="number"
@@ -122,13 +118,22 @@ export function Search() {
                 {/* Results */}
                 {isLoading ? (
                     <div className="flex justify-center py-12">
-                        <div className="w-12 h-12 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+                        <div className="w-8 h-8 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                ) : error ? (
+                    <div className="text-center py-12 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl">
+                        <p className="text-red-500 mb-4">{error}</p>
+                        <button
+                            onClick={() => { setError(null); fetchProducts(); }}
+                            className="px-4 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-border)]/50 transition-colors text-sm"
+                        >
+                            Retry
+                        </button>
                     </div>
                 ) : products.length === 0 ? (
-                    <div className="text-center py-12 bg-red-500/10 border border-red-500/30 rounded-xl">
-                        <p className="text-4xl mb-4">🔍</p>
-                        <p className="text-xl font-semibold text-red-500">Not Found!</p>
-                        <p className="text-[var(--color-text-muted)] mt-2">
+                    <div className="text-center py-12 bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl">
+                        <p className="text-base font-medium text-[var(--color-text)]">No results found</p>
+                        <p className="text-sm text-[var(--color-text-muted)] mt-1">
                             No products match your search
                             {searchTerm && <span className="font-medium"> "{searchTerm}"</span>}
                         </p>
@@ -153,13 +158,13 @@ export function Search() {
                                     <div className="flex items-start justify-between gap-4">
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center gap-2 mb-1">
-                                                <span className="font-mono text-sm font-bold text-indigo-500">{product.sku}</span>
+                                                <span className="font-mono text-sm font-bold text-[var(--color-accent-text)]">{product.sku}</span>
                                                 <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-500">
                                                     Available
                                                 </span>
                                             </div>
                                             <p className="text-lg font-medium text-[var(--color-text)]">
-                                                {product.saree_type}
+                                                {product.saree_name || 'Unnamed'}
                                             </p>
                                             <p className="text-[var(--color-text-muted)]">
                                                 {product.material}

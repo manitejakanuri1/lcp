@@ -1,4 +1,4 @@
-export type UserRole = 'founder' | 'salesman'
+export type UserRole = 'founder' | 'salesman' | 'accounting'
 export type ProductStatus = 'available' | 'sold'
 export type PaymentMethod = 'cash' | 'card' | 'upi'
 
@@ -9,6 +9,7 @@ export interface Database {
                 Row: {
                     id: string
                     email: string
+                    username: string
                     full_name: string | null
                     role: UserRole
                     created_at: string
@@ -40,7 +41,7 @@ export interface Database {
                     purchase_date: string
                     cost_price: number
                     selling_price: number
-                    saree_type: string
+                    saree_type: string | null
                     material: string
                     color: string | null
                     rack_location: string | null
@@ -59,7 +60,7 @@ export interface Database {
                     purchase_date: string
                     cost_price: number
                     selling_price: number
-                    saree_type: string
+                    saree_type: string | null
                     material: string
                     color?: string | null
                     rack_location?: string | null
@@ -185,6 +186,14 @@ export interface Database {
                 Args: Record<string, never>
                 Returns: string
             }
+            /** Resolves a username to its login email. Callable before sign-in, so it
+             *  deliberately returns nothing else — profiles itself is not readable then. */
+            get_login_email: {
+                Args: {
+                    p_username: string
+                }
+                Returns: string | null
+            }
             get_analytics_summary: {
                 Args: {
                     start_date?: string | null
@@ -227,7 +236,7 @@ export type BillItemInsert = Database['public']['Tables']['bill_items']['Insert'
 export interface ProductSalesman {
     id: string
     sku: string
-    saree_type: string
+    saree_name: string | null
     material: string
     color: string | null
     selling_price: number
