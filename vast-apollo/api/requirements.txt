@@ -11,7 +11,7 @@
 # opencv-python name and no modules, leaving headless as the only real cv2. A direct
 # reference takes precedence over a transitive version requirement, so this settles
 # the resolution rather than racing it. See api/vendor/README.md.
-opencv-python @ file:///vercel/path0/api/vendor/opencv_python-4.14.0.94-py3-none-any.whl
+opencv-python @ ./api/vendor/opencv_python-4.14.0.94-py3-none-any.whl
 #
 # Two constraints shaped these choices, against Vercel's 500MB function limit:
 #
