@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 interface ProductThumbnailProps {
     imageUrl: string | null | undefined;
@@ -13,10 +13,8 @@ interface ProductThumbnailProps {
  * to load — e.g. the file was removed from the product-photos bucket.
  */
 export function ProductThumbnail({ imageUrl, alt, className = '' }: ProductThumbnailProps) {
-    const [failed, setFailed] = useState(false);
-
-    // A new upload swaps the URL, so give the replacement its own chance to load.
-    useEffect(() => setFailed(false), [imageUrl]);
+    const [failedUrl, setFailedUrl] = useState<string | null>(null);
+    const failed = Boolean(imageUrl && failedUrl === imageUrl);
 
     if (!imageUrl || failed) {
         return (
@@ -36,7 +34,7 @@ export function ProductThumbnail({ imageUrl, alt, className = '' }: ProductThumb
             src={imageUrl}
             alt={alt}
             loading="lazy"
-            onError={() => setFailed(true)}
+            onError={() => setFailedUrl(imageUrl)}
             className={`object-cover bg-[var(--color-surface)] ${className}`}
         />
     );

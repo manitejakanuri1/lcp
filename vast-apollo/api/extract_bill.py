@@ -469,7 +469,10 @@ class handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         secret = os.environ.get("INTERNAL_API_SECRET")
-        if secret and self.headers.get("X-Internal-Secret") != secret:
+        if not secret:
+            self._send(503, {"error": "Extractor is not configured"})
+            return
+        if self.headers.get("X-Internal-Secret") != secret:
             self._send(401, {"error": "Unauthorized"})
             return
 
@@ -480,9 +483,13 @@ class handler(BaseHTTPRequestHandler):
         if length <= 0:
             self._send(400, {"error": "No image supplied"})
             return
+        if length > 10 * 1024 * 1024:
+            self._send(413, {"error": "Image is too large"})
+            return
 
         try:
             data = self.rfile.read(length)
             self._send(200, extract_bill_data(data))
-        except Exception as err:  # noqa: BLE001 — surface the reason to the caller
-            self._send(500, {"error": f"{type(err).__name__}: {err}"})
+        except Exception as err:  # noqa: BLE001 — detailed error stays in server logs
+            print(f"Bill extraction failed: {type(err).__name__}: {err}")
+            self._send(500, {"error": "Bill extraction failed"})

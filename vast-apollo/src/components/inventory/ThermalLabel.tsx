@@ -32,9 +32,9 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <html>
         <head>
             <title>Thermal Labels</title>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
-            <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>
-            <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><\/script>
+            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
             <style>
                 * {
                     margin: 0;
@@ -289,7 +289,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     btn.textContent = 'Download PDF';
                     btn.disabled = false;
                 }
-            <\/script>
+            </script>
         </body>
         </html>
     `)

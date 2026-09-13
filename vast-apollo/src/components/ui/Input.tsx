@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes } from 'react'
+import { forwardRef, useId, type InputHTMLAttributes } from 'react'
 
 interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
     label?: string
@@ -8,15 +8,22 @@ interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
     ({ label, error, helperText, className = '', ...props }, ref) => {
+        const generatedId = useId()
+        const inputId = props.id ?? generatedId
+        const descriptionId = error || helperText ? `${inputId}-description` : undefined
+
         return (
             <div className="w-full">
                 {label && (
-                    <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                    <label htmlFor={inputId} className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
                         {label}
                     </label>
                 )}
                 <input
                     ref={ref}
+                    id={inputId}
+                    aria-invalid={Boolean(error)}
+                    aria-describedby={descriptionId}
                     className={`
             w-full px-4 py-3 text-base
             bg-[var(--color-surface)] 
@@ -35,10 +42,10 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
                     {...props}
                 />
                 {error && (
-                    <p className="mt-1.5 text-sm text-red-500">{error}</p>
+                    <p id={descriptionId} className="mt-1.5 text-sm text-red-500">{error}</p>
                 )}
                 {helperText && !error && (
-                    <p className="mt-1.5 text-sm text-[var(--color-text-muted)]">{helperText}</p>
+                    <p id={descriptionId} className="mt-1.5 text-sm text-[var(--color-text-muted)]">{helperText}</p>
                 )}
             </div>
         )

@@ -88,15 +88,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         }
     }
 
-    const handleItemChange = (index: number, field: keyof ProductEntry, value: any) => {
+    const handleItemChange = (index: number, field: keyof ProductEntry, value: unknown) => {
         const newItems = [...items]
-        newItems[index] = { ...newItems[index], [field]: value }
+        newItems[index] = { ...newItems[index], [field]: value } as ProductEntry
 
         // Auto-fill material to all items that still have empty material
         if (field === 'material' && value) {
             newItems.forEach((item, i) => {
                 if (i !== index && !item.material) {
-                    newItems[i] = { ...newItems[i], material: value }
+                    newItems[i] = { ...newItems[i], material: String(value) }
                 }
             })
         }
@@ -106,7 +106,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         if (field === 'saree_type' && value) {
             newItems.forEach((item, i) => {
                 if (i !== index && !item.saree_type) {
-                    newItems[i] = { ...newItems[i], saree_type: value }
+                    newItems[i] = { ...newItems[i], saree_type: String(value) }
                 }
             })
         }
@@ -159,7 +159,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 saree_type: ''
             })))
             setDiscountPercents(extractedData.items.map(item =>
-                (item as any).discount_percent ? String((item as any).discount_percent) : ''
+                item.discount_percent ? String(item.discount_percent) : ''
             ))
             // The bill scan replaces the item list wholesale, so photo slots restart too.
             setItemPhotos(extractedData.items.map(() => null))

@@ -22,8 +22,10 @@ ALTER TABLE public.products
 ADD COLUMN IF NOT EXISTS vendor_bill_id UUID REFERENCES public.vendor_bills(id) ON DELETE CASCADE,
 ADD COLUMN IF NOT EXISTS hsn_code TEXT;
 
--- Disable RLS for the new table (matching project pattern)
-ALTER TABLE public.vendor_bills DISABLE ROW LEVEL SECURITY;
+-- The API accesses this table with the server-only service role. Browser roles receive
+-- no table grant; RLS remains enabled as defense in depth.
+ALTER TABLE public.vendor_bills ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.vendor_bills FROM anon, authenticated;
 
 -- Add indexes
 CREATE INDEX IF NOT EXISTS idx_vendor_bills_date ON public.vendor_bills(bill_date);

@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react';
-import { Button } from '../ui';
 import type { BillExtractedData } from '../../lib/api';
 
 interface BillImageUploadProps {
@@ -108,7 +107,7 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
                 input.files = dataTransfer.files;
-                handleFileSelect({ target: input } as any);
+                handleFileSelect({ target: input } as unknown as React.ChangeEvent<HTMLInputElement>);
             }
         }
     };

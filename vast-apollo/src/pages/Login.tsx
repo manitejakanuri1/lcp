@@ -38,7 +38,7 @@ export function LoginPage() {
     }
 
     return (
-        <div className="min-h-screen bg-[var(--color-surface)] flex flex-col">
+        <main className="min-h-screen bg-[var(--color-surface)] flex flex-col">
             {/* Theme toggle in corner */}
             <div className="absolute top-4 right-4">
                 <ThemeToggle />
@@ -67,7 +67,7 @@ export function LoginPage() {
                                             <Shield className="w-4 h-4 text-[var(--color-primary)]" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Founder</h3>
+                                            <h2 className="text-sm font-semibold text-[var(--color-text)]">Founder</h2>
                                             <p className="text-xs text-[var(--color-text-muted)]">Full access to all features</p>
                                         </div>
                                     </div>
@@ -79,7 +79,7 @@ export function LoginPage() {
                                             <ShoppingCart className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Salesman</h3>
+                                            <h2 className="text-sm font-semibold text-[var(--color-text)]">Salesman</h2>
                                             <p className="text-xs text-[var(--color-text-muted)]">Access to Sales & Search only</p>
                                         </div>
                                     </div>
@@ -91,7 +91,7 @@ export function LoginPage() {
                                             <BarChart3 className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
                                         </div>
                                         <div className="flex-1 text-left">
-                                            <h3 className="text-sm font-semibold text-[var(--color-text)]">Accounting</h3>
+                                            <h2 className="text-sm font-semibold text-[var(--color-text)]">Accounting</h2>
                                             <p className="text-xs text-[var(--color-text-muted)]">Analytics, Reports & Inventory view</p>
                                         </div>
                                     </div>
@@ -130,7 +130,7 @@ export function LoginPage() {
                                     />
 
                                     {error && (
-                                        <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm">
+                                        <div role="alert" className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-sm">
                                             {error}
                                         </div>
                                     )}
@@ -150,6 +150,6 @@ export function LoginPage() {
                     </div>
                 </div>
             </div>
-        </div>
+        </main>
     )
 }
