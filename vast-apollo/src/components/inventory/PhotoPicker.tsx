@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -18,19 +18,15 @@ interface PhotoPickerProps {
  */
 export function PhotoPicker({ file, onChange, disabled = false }: PhotoPickerProps) {
     const [error, setError] = useState<string | null>(null);
-    const [preview, setPreview] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const preview = useMemo(() => file ? URL.createObjectURL(file) : null, [file]);
 
     // Object URLs have to be released by hand or the blobs leak.
     useEffect(() => {
-        if (!file) {
-            setPreview(null);
-            return;
-        }
-        const url = URL.createObjectURL(file);
-        setPreview(url);
-        return () => URL.revokeObjectURL(url);
-    }, [file]);
+        return () => {
+            if (preview) URL.revokeObjectURL(preview);
+        };
+    }, [preview]);
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
         const selected = e.target.files?.[0];

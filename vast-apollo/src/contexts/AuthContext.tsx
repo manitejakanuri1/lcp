@@ -164,44 +164,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const signIn = async (username: string, password: string) => {
         try {
-            // Supabase authenticates by email, so resolve the username first. This goes
-            // through get_login_email rather than reading profiles directly: the table is
-            // no longer readable before sign-in, because that exposed every staff email,
-            // name and role to anyone on the internet.
-            // This file's Database type is hand-maintained and doesn't match the shape
-            // supabase-js infers rpc arguments from, so it types them as `undefined`.
-            // The call is correct; the cast is only to get past that.
-            const { data: loginEmail, error: profileError } = (await (supabase.rpc as unknown as (
-                fn: string,
-                args: Record<string, unknown>
-            ) => Promise<{ data: string | null; error: { code?: string; message: string } | null }>)(
-                'get_login_email',
-                { p_username: username }
-            ))
-
-            // An error means the lookup itself failed (offline, stale cached build
-            // pointing at a bad URL, Supabase down). Calling that a wrong password sends
-            // people off resetting credentials that were never the problem.
-            if (profileError) {
-                console.error('[Auth] Username lookup failed:', profileError)
-                return {
-                    error: new Error("Can't reach the server. Check your internet, then fully close and reopen the app."),
-                    role: null
-                }
-            }
-
-            // No error and no email means the username simply doesn't exist.
-            if (!loginEmail) {
-                return { error: new Error('Invalid username or password'), role: null }
-            }
-
-            const { data: authData, error } = await supabase.auth.signInWithPassword({
-                email: loginEmail,
-                password
+            const apiBase = import.meta.env.VITE_API_URL || '/api'
+            const response = await fetch(`${apiBase}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ username, password }),
             })
-            if (error || !authData.user) {
-                return { error: (error as Error) ?? new Error('Invalid username or password'), role: null }
+            const result = await response.json().catch(() => ({ error: 'Sign-in failed' }))
+            if (!response.ok || !result.session?.access_token || !result.session?.refresh_token) {
+                return { error: new Error(result.error || 'Invalid username or password'), role: null }
             }
+
+            const { data: authData, error } = await supabase.auth.setSession(result.session)
+            if (error || !authData.user) return { error: error ?? new Error('Sign-in failed'), role: null }
 
             // Read the role only now that we're signed in. Returning it from the
             // pre-login lookup would put it back within reach of anyone who guessed a

@@ -6,12 +6,26 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import sharp from 'sharp';
+import { randomUUID } from 'node:crypto';
+import { ipKeyGenerator, rateLimit } from 'express-rate-limit';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+const DEFAULT_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+    'https://vast-apollo.vercel.app',
+];
+const allowedOrigins = new Set(
+    (process.env.ALLOWED_ORIGINS || DEFAULT_ALLOWED_ORIGINS.join(','))
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter(Boolean)
+);
 
 // Initialize Supabase with SERVICE ROLE key (server-side only!)
 const supabase = createClient(
@@ -35,6 +49,39 @@ const upload = multer({
     }
 });
 
+const hasAllowedSignature = (buffer, mimeType) => {
+    if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+
+    const signatures = {
+        'image/jpeg': buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff,
+        'image/jpg': buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff,
+        'image/png': buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+        'image/webp': buffer.subarray(0, 4).toString('ascii') === 'RIFF'
+            && buffer.subarray(8, 12).toString('ascii') === 'WEBP',
+        'application/pdf': buffer.subarray(0, 5).toString('ascii') === '%PDF-',
+    };
+
+    return Boolean(signatures[mimeType]);
+};
+
+const handleUploadError = (err, res, next) => {
+    if (!err) return next();
+    const message = err.code === 'LIMIT_FILE_SIZE'
+        ? 'File is too large. Maximum size is 10MB.'
+        : err.message || 'Upload failed';
+    return res.status(400).json({ error: message });
+};
+
+const singleBill = (req, res, next) => {
+    upload.single('billImage')(req, res, (err) => {
+        if (err) return handleUploadError(err, res, next);
+        if (req.file && !hasAllowedSignature(req.file.buffer, req.file.mimetype)) {
+            return res.status(400).json({ error: 'File content does not match its declared type.' });
+        }
+        return next();
+    });
+};
+
 // Product photos are image-only (no PDFs) and allow WEBP, which the bill uploader above
 // does not. Keeping them separate stops the two use cases from fighting over one filter.
 const photoUpload = multer({
@@ -57,20 +104,20 @@ const photoUpload = multer({
 // page, which the client can't parse â€” so the user just sees a generic "Upload failed".
 const singlePhoto = (req, res, next) => {
     photoUpload.single('photo')(req, res, (err) => {
-        if (!err) return next();
-        const message = err.code === 'LIMIT_FILE_SIZE'
-            ? 'Image is too large. Maximum size is 10MB.'
-            : err.message || 'Upload failed';
-        res.status(400).json({ error: message });
+        if (err) return handleUploadError(err, res, next);
+        if (req.file && !hasAllowedSignature(req.file.buffer, req.file.mimetype)) {
+            return res.status(400).json({ error: 'Image content does not match its declared type.' });
+        }
+        return next();
     });
 };
 
 // CORS must come BEFORE helmet to handle preflight OPTIONS correctly on mobile
 app.use(cors({
     origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
+        // Non-browser clients do not send Origin. Browser origins must be explicit.
         if (!origin) return callback(null, true);
-        callback(null, true);
+        return callback(null, allowedOrigins.has(origin));
     },
     credentials: true
 }));
@@ -81,45 +128,52 @@ app.use(helmet({
     crossOriginOpenerPolicy: false,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
 app.use(cookieParser());
+app.use('/api', (_req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+});
 
 // JWT middleware
 import jwt from 'jsonwebtoken';
 
 const authenticateToken = async (req, res, next) => {
-    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+    const authorization = req.headers.authorization;
+    const bearerToken = authorization?.startsWith('Bearer ')
+        ? authorization.slice('Bearer '.length).trim()
+        : null;
+    const cookieToken = req.cookies.token;
 
-    if (!token) {
+    if (!bearerToken && !cookieToken) {
         return res.status(401).json({ error: 'Access denied' });
     }
 
     try {
-        // Try JWT verification first (for cookie-based auth)
-        const verified = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = verified;
-        next();
-    } catch (jwtErr) {
-        // If JWT verification fails, try Supabase token validation
-        try {
-            const { data: { user }, error } = await supabase.auth.getUser(token);
+        let identity;
 
-            if (error || !user) {
-                return res.status(403).json({ error: 'Invalid token' });
-            }
-
-            // Look up role from profiles so requireFounder works with Supabase tokens
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('role, username')
-                .eq('id', user.id)
-                .single();
-
-            req.user = { id: user.id, email: user.email, role: profile?.role, username: profile?.username };
-            next();
-        } catch (supabaseErr) {
-            res.status(403).json({ error: 'Invalid token' });
+        if (bearerToken) {
+            const { data: { user }, error } = await supabase.auth.getUser(bearerToken);
+            if (error || !user) return res.status(401).json({ error: 'Invalid or expired session' });
+            identity = { id: user.id, email: user.email };
+        } else {
+            if (!process.env.JWT_SECRET) return res.status(503).json({ error: 'Authentication is not configured' });
+            const verified = jwt.verify(cookieToken, process.env.JWT_SECRET);
+            identity = { id: verified.id, email: verified.email };
         }
+
+        // Authorization data is always loaded fresh; stale JWT role claims are ignored.
+        const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role, username')
+            .eq('id', identity.id)
+            .single();
+
+        if (profileError || !profile) return res.status(403).json({ error: 'User profile is unavailable' });
+        req.user = { ...identity, role: profile.role, username: profile.username };
+        return next();
+    } catch {
+        return res.status(401).json({ error: 'Invalid or expired session' });
     }
 };
 
@@ -131,17 +185,101 @@ const requireFounder = (req, res, next) => {
     next();
 };
 
+const requireRoles = (...roles) => (req, res, next) => {
+    if (!roles.includes(req.user?.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    return next();
+};
+
+const protectedPrefixes = [
+    '/api/products', '/api/bills', '/api/analytics', '/api/vendor-bills',
+    '/api/users', '/api/expenses', '/api/reports', '/api/inventory',
+];
+app.use(protectedPrefixes, authenticateToken);
+
+app.use('/api/analytics', requireRoles('founder', 'accounting'));
+app.use('/api/reports', requireRoles('founder', 'accounting'));
+app.use('/api/users', requireFounder);
+app.use('/api/products', (req, res, next) => req.method === 'GET'
+    ? next()
+    : requireFounder(req, res, next));
+app.use('/api/bills', (req, res, next) => {
+    if (req.method === 'POST' || req.path === '/generate-number') {
+        return requireRoles('founder', 'salesman')(req, res, next);
+    }
+    if (req.method === 'GET') return requireRoles('founder', 'accounting')(req, res, next);
+    return requireFounder(req, res, next);
+});
+app.use('/api/vendor-bills', (req, res, next) => req.method === 'GET'
+    ? requireRoles('founder', 'accounting')(req, res, next)
+    : requireFounder(req, res, next));
+app.use('/api/expenses', (req, res, next) => (req.method === 'GET' || req.method === 'POST')
+    ? requireRoles('founder', 'accounting')(req, res, next)
+    : requireFounder(req, res, next));
+app.use('/api/inventory', (req, res, next) => req.method === 'GET'
+    ? requireRoles('founder', 'accounting')(req, res, next)
+    : requireFounder(req, res, next));
+
+const loginLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 8,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+    keyGenerator: (req) => `${ipKeyGenerator(req.ip)}:${String(req.body?.username || '').trim().toLowerCase()}`,
+    message: { error: 'Too many sign-in attempts. Try again in 15 minutes.' },
+});
+
+const pickAllowed = (value, allowedFields) => Object.fromEntries(
+    Object.entries(value && typeof value === 'object' ? value : {})
+        .filter(([key]) => allowedFields.includes(key))
+);
+
+const PRODUCT_FIELDS = [
+    'sku', 'vendor_name', 'hsn_code', 'purchase_date', 'cost_price', 'cost_code',
+    'selling_price_a', 'selling_price_b', 'saree_name', 'saree_type', 'material',
+    'color', 'quantity', 'rack_location', 'status', 'vendor_bill_id',
+];
+const BILL_FIELDS = [
+    'bill_number', 'customer_name', 'customer_phone', 'salesman_id', 'total_amount',
+    'total_cost', 'payment_method', 'notes', 'bill_date', 'gst_amount', 'cgst_rate',
+    'sgst_rate', 'igst_rate', 'is_local_transaction',
+];
+const BILL_ITEM_FIELDS = ['product_id', 'selling_price', 'cost_price', 'quantity'];
+const VENDOR_BILL_FIELDS = [
+    'company_name', 'bill_number', 'bill_date', 'total_amount', 'vendor_gst_number',
+    'is_local_transaction', 'cgst_rate', 'sgst_rate', 'igst_rate', 'gst_amount',
+];
+const SALESMAN_PRODUCT_COLUMNS = [
+    'id', 'sku', 'saree_name', 'saree_type', 'material', 'color',
+    'selling_price_a', 'selling_price_b', 'quantity', 'rack_location',
+    'status', 'image_url',
+].join(',');
+
+const safeSearchValue = (value) => String(value || '')
+    .slice(0, 100)
+    .replace(/[%_,()]/g, '')
+    .trim();
+
 // ================== AUTH ROUTES ==================
 
 // Login with username
-app.post('/api/auth/login', async (req, res) => {
+app.post('/api/auth/login', loginLimiter, async (req, res) => {
     try {
-        const { username, password } = req.body;
+        const username = typeof req.body?.username === 'string' ? req.body.username.trim().toLowerCase() : '';
+        const password = typeof req.body?.password === 'string' ? req.body.password : '';
+        if (!/^[a-z0-9._-]{3,50}$/.test(username) || password.length < 8 || password.length > 128) {
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+        if (!process.env.JWT_SECRET) {
+            return res.status(503).json({ error: 'Authentication is not configured' });
+        }
 
         // First, find the user by username
         const { data: profile, error: profileError } = await supabase
             .from('profiles')
-            .select('*')
+            .select('id, email, username')
             .eq('username', username)
             .single();
 
@@ -155,20 +293,29 @@ app.post('/api/auth/login', async (req, res) => {
             password
         });
 
-        if (error) {
+        if (error || !data.user || !data.session) {
             return res.status(401).json({ error: 'Invalid username or password' });
         }
 
-        // Create JWT
+        const { data: authenticatedProfile, error: authenticatedProfileError } = await supabase
+            .from('profiles')
+            .select('id, email, username, full_name, role')
+            .eq('id', data.user.id)
+            .single();
+
+        if (authenticatedProfileError || !authenticatedProfile) {
+            return res.status(403).json({ error: 'User profile is unavailable' });
+        }
+
+        // Short-lived compatibility cookie. Browser API calls use the Supabase bearer token.
         const token = jwt.sign(
             {
                 id: data.user.id,
                 email: data.user.email,
-                username: profile.username,
-                role: profile.role
+                username: authenticatedProfile.username
             },
             process.env.JWT_SECRET,
-            { expiresIn: '7d' }
+            { expiresIn: '15m' }
         );
 
         // Set HTTP-only cookie
@@ -176,16 +323,20 @@ app.post('/api/auth/login', async (req, res) => {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            maxAge: 15 * 60 * 1000
         });
 
         res.json({
             user: {
                 id: data.user.id,
                 email: data.user.email,
-                username: profile.username,
-                ...profile
-            }
+                username: authenticatedProfile.username,
+                ...authenticatedProfile
+            },
+            session: {
+                access_token: data.session.access_token,
+                refresh_token: data.session.refresh_token,
+            },
         });
     } catch (err) {
         console.error('Login error:', err);
@@ -197,12 +348,32 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/register', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { username, email, password, fullName, role } = req.body;
+        const normalizedUsername = typeof username === 'string' ? username.trim().toLowerCase() : '';
+        const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+        const allowedRoles = new Set(['founder', 'salesman', 'accounting']);
+        const strongPassword = typeof password === 'string'
+            && password.length >= 12
+            && password.length <= 128
+            && /[a-z]/.test(password)
+            && /[A-Z]/.test(password)
+            && /\d/.test(password)
+            && /[^A-Za-z0-9]/.test(password);
+
+        if (!/^[a-z0-9._-]{3,50}$/.test(normalizedUsername)
+            || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)
+            || !strongPassword
+            || !allowedRoles.has(role)
+            || typeof fullName !== 'string'
+            || fullName.trim().length < 2
+            || fullName.trim().length > 100) {
+            return res.status(400).json({ error: 'Invalid account details or weak password' });
+        }
 
         // Check if username already exists
         const { data: existingProfile } = await supabase
             .from('profiles')
             .select('username')
-            .eq('username', username)
+            .eq('username', normalizedUsername)
             .single();
 
         if (existingProfile) {
@@ -210,10 +381,11 @@ app.post('/api/auth/register', authenticateToken, requireFounder, async (req, re
         }
 
         const { data, error } = await supabase.auth.admin.createUser({
-            email,
+            email: normalizedEmail,
             password,
             email_confirm: true,
-            user_metadata: { full_name: fullName, role, username }
+            user_metadata: { full_name: fullName.trim(), username: normalizedUsername },
+            app_metadata: { role }
         });
 
         if (error) {
@@ -221,15 +393,20 @@ app.post('/api/auth/register', authenticateToken, requireFounder, async (req, re
         }
 
         // Create profile
-        await supabase.from('profiles').insert({
+        const { error: insertProfileError } = await supabase.from('profiles').upsert({
             id: data.user.id,
-            email,
-            username,
-            full_name: fullName,
+            email: normalizedEmail,
+            username: normalizedUsername,
+            full_name: fullName.trim(),
             role: role || 'salesman'
-        });
+        }, { onConflict: 'id' });
 
-        res.json({ message: 'User created successfully', username });
+        if (insertProfileError) {
+            await supabase.auth.admin.deleteUser(data.user.id);
+            return res.status(500).json({ error: 'Could not create the user profile' });
+        }
+
+        res.status(201).json({ message: 'User created successfully', username: normalizedUsername });
     } catch (err) {
         console.error('Registration error:', err);
         res.status(500).json({ error: 'Server error' });
@@ -264,16 +441,18 @@ app.get('/api/products', async (req, res) => {
     try {
         const { status, search, type, color, minPrice, maxPrice, vendor, saree_name } = req.query;
 
-        let query = supabase.from('products').select('*');
+        const columns = req.user.role === 'salesman' ? SALESMAN_PRODUCT_COLUMNS : '*';
+        let query = supabase.from('products').select(columns);
 
-        if (status) query = query.eq('status', status);
-        if (vendor) query = query.ilike('vendor_name', `%${vendor}%`);
-        if (saree_name) query = query.ilike('saree_name', `%${saree_name}%`);
-        if (color) query = query.ilike('color', `%${color}%`);
+        if (status && ['available', 'sold'].includes(status)) query = query.eq('status', status);
+        if (vendor) query = query.ilike('vendor_name', `%${safeSearchValue(vendor)}%`);
+        if (saree_name) query = query.ilike('saree_name', `%${safeSearchValue(saree_name)}%`);
+        if (color) query = query.ilike('color', `%${safeSearchValue(color)}%`);
         if (minPrice) query = query.gte('selling_price_a', parseFloat(minPrice));
         if (maxPrice) query = query.lte('selling_price_a', parseFloat(maxPrice));
         if (search) {
-            query = query.or(`sku.ilike.%${search}%,material.ilike.%${search}%,color.ilike.%${search}%,vendor_name.ilike.%${search}%,saree_name.ilike.%${search}%`);
+            const term = safeSearchValue(search);
+            query = query.or(`sku.ilike.%${term}%,material.ilike.%${term}%,color.ilike.%${term}%,vendor_name.ilike.%${term}%,saree_name.ilike.%${term}%`);
         }
 
         const { data, error } = await query.order('created_at', { ascending: false });
@@ -288,9 +467,10 @@ app.get('/api/products', async (req, res) => {
 // Get product by SKU
 app.get('/api/products/sku/:sku', async (req, res) => {
     try {
+        const columns = req.user.role === 'salesman' ? SALESMAN_PRODUCT_COLUMNS : '*';
         const { data, error } = await supabase
             .from('products')
-            .select('*')
+            .select(columns)
             .eq('sku', req.params.sku)
             .single();
 
@@ -304,10 +484,11 @@ app.get('/api/products/sku/:sku', async (req, res) => {
 // Create product
 app.post('/api/products', async (req, res) => {
     try {
-        console.log('Creating product:', req.body);
+        const product = pickAllowed(req.body, PRODUCT_FIELDS);
+        product.created_by = req.user.id;
         const { data, error } = await supabase
             .from('products')
-            .insert(req.body)
+            .insert(product)
             .select()
             .single();
 
@@ -325,10 +506,10 @@ app.post('/api/products', async (req, res) => {
 // Update product
 app.put('/api/products/:id', async (req, res) => {
     try {
-        console.log('Updating product:', req.params.id, req.body);
+        const product = pickAllowed(req.body, PRODUCT_FIELDS);
         const { data, error } = await supabase
             .from('products')
-            .update(req.body)
+            .update(product)
             .eq('id', req.params.id)
             .select()
             .single();
@@ -337,7 +518,6 @@ app.put('/api/products/:id', async (req, res) => {
             console.error('Update error:', error);
             throw error;
         }
-        console.log('Update result:', data);
         res.json(data);
     } catch (err) {
         console.error('Failed to update product:', err);
@@ -350,17 +530,21 @@ app.delete('/api/products/:id', async (req, res) => {
     try {
         console.log('Deleting product:', req.params.id);
 
-        // First delete any bill_items referencing this product
-        const { error: billItemsError } = await supabase
+        // Preserve immutable sales history. A referenced product must be archived or
+        // marked unavailable, never erased together with its historical bill items.
+        const { data: billItems, error: billItemsError } = await supabase
             .from('bill_items')
-            .delete()
-            .eq('product_id', req.params.id);
+            .select('id')
+            .eq('product_id', req.params.id)
+            .limit(1);
 
         if (billItemsError) {
-            console.log('Bill items delete (may be empty):', billItemsError);
+            throw billItemsError;
+        }
+        if (billItems?.length) {
+            return res.status(409).json({ error: 'This product is part of a bill and cannot be deleted' });
         }
 
-        // Then delete the product
         const { error } = await supabase
             .from('products')
             .delete()
@@ -435,18 +619,25 @@ app.get('/api/bills/:id', async (req, res) => {
 app.post('/api/bills', async (req, res) => {
     try {
         const { bill, items } = req.body;
+        if (!bill || !Array.isArray(items) || items.length === 0 || items.length > 100) {
+            return res.status(400).json({ error: 'A valid bill and 1-100 items are required' });
+        }
+
+        const safeBill = pickAllowed(bill, BILL_FIELDS);
+        const safeItems = items.map((item) => pickAllowed(item, BILL_ITEM_FIELDS));
+        if (req.user.role === 'salesman') safeBill.salesman_id = req.user.id;
 
         // Create bill
         const { data: billData, error: billError } = await supabase
             .from('bills')
-            .insert(bill)
+            .insert(safeBill)
             .select()
             .single();
 
         if (billError) throw billError;
 
         // Create bill items
-        const billItems = items.map(item => ({
+        const billItems = safeItems.map(item => ({
             ...item,
             bill_id: billData.id
         }));
@@ -455,7 +646,10 @@ app.post('/api/bills', async (req, res) => {
             .from('bill_items')
             .insert(billItems);
 
-        if (itemsError) throw itemsError;
+        if (itemsError) {
+            await supabase.from('bills').delete().eq('id', billData.id);
+            throw itemsError;
+        }
 
         res.status(201).json(billData);
     } catch (err) {
@@ -466,9 +660,10 @@ app.post('/api/bills', async (req, res) => {
 // Update bill
 app.put('/api/bills/:id', async (req, res) => {
     try {
+        const bill = pickAllowed(req.body, BILL_FIELDS);
         const { data, error } = await supabase
             .from('bills')
-            .update(req.body)
+            .update(bill)
             .eq('id', req.params.id)
             .select()
             .single();
@@ -581,12 +776,16 @@ app.get('/api/analytics/daily-sales', async (req, res) => {
 app.post('/api/vendor-bills', async (req, res) => {
     try {
         const { bill, products } = req.body;
+        if (!bill || !Array.isArray(products) || products.length > 500) {
+            return res.status(400).json({ error: 'A valid vendor bill and product list are required' });
+        }
+        const safeVendorBill = pickAllowed(bill, VENDOR_BILL_FIELDS);
 
 
         // 1. Create the Vendor Bill
         const { data: billData, error: billError } = await supabase
             .from('vendor_bills')
-            .insert(bill)
+            .insert(safeVendorBill)
             .select()
             .single();
 
@@ -598,7 +797,7 @@ app.post('/api/vendor-bills', async (req, res) => {
         // 2. Prepare products with the new vendor_bill_id
         if (products && products.length > 0) {
             const productsToInsert = products.map(p => ({
-                ...p,
+                ...pickAllowed(p, PRODUCT_FIELDS),
                 vendor_bill_id: billData.id
             }));
 
@@ -609,6 +808,7 @@ app.post('/api/vendor-bills', async (req, res) => {
 
             if (productsError) {
                 console.error('Error adding products to bill:', productsError);
+                await supabase.from('vendor_bills').delete().eq('id', billData.id);
                 throw productsError;
             }
 
@@ -662,7 +862,7 @@ app.get('/api/vendor-bills/:id', async (req, res) => {
 });
 
 // Update vendor bill
-app.put('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+app.put('/api/vendor-bills/:id', async (req, res) => {
     try {
         const { company_name, bill_number, bill_date, vendor_gst_number, is_local_transaction, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate } = req.body;
 
@@ -694,7 +894,7 @@ app.put('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete vendor bill (products cascade-deleted via FK)
-app.delete('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+app.delete('/api/vendor-bills/:id', async (req, res) => {
     try {
         const { error } = await supabase
             .from('vendor_bills')
@@ -711,7 +911,7 @@ app.delete('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
 
 // ================== USERS ROUTES ==================
 
-app.get('/api/users', authenticateToken, async (req, res) => {
+app.get('/api/users', async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('profiles')
@@ -725,9 +925,12 @@ app.get('/api/users', authenticateToken, async (req, res) => {
     }
 });
 
-app.put('/api/users/:id/role', authenticateToken, requireFounder, async (req, res) => {
+app.put('/api/users/:id/role', async (req, res) => {
     try {
         const { role } = req.body;
+        if (!['founder', 'salesman', 'accounting'].includes(role)) {
+            return res.status(400).json({ error: 'Invalid role' });
+        }
 
         const { data, error } = await supabase
             .from('profiles')
@@ -744,12 +947,19 @@ app.put('/api/users/:id/role', authenticateToken, requireFounder, async (req, re
 });
 
 // Reset user password (founder only)
-app.put('/api/users/:id/password', authenticateToken, requireFounder, async (req, res) => {
+app.put('/api/users/:id/password', async (req, res) => {
     try {
         const { password } = req.body;
 
-        if (!password || password.length < 6) {
-            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        const strongPassword = typeof password === 'string'
+            && password.length >= 12
+            && password.length <= 128
+            && /[a-z]/.test(password)
+            && /[A-Z]/.test(password)
+            && /\d/.test(password)
+            && /[^A-Za-z0-9]/.test(password);
+        if (!strongPassword) {
+            return res.status(400).json({ error: 'Password must be 12-128 characters and include upper, lower, number, and symbol' });
         }
 
         const { error } = await supabase.auth.admin.updateUserById(req.params.id, {
@@ -765,13 +975,23 @@ app.put('/api/users/:id/password', authenticateToken, requireFounder, async (req
 });
 
 // Update user profile (founder only)
-app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) => {
+app.put('/api/users/:id', async (req, res) => {
     try {
         const { full_name, role } = req.body;
 
         const updateData = {};
-        if (full_name !== undefined) updateData.full_name = full_name;
-        if (role !== undefined) updateData.role = role;
+        if (full_name !== undefined) {
+            if (typeof full_name !== 'string' || full_name.trim().length < 2 || full_name.trim().length > 100) {
+                return res.status(400).json({ error: 'Invalid full name' });
+            }
+            updateData.full_name = full_name.trim();
+        }
+        if (role !== undefined) {
+            if (!['founder', 'salesman', 'accounting'].includes(role)) {
+                return res.status(400).json({ error: 'Invalid role' });
+            }
+            updateData.role = role;
+        }
         updateData.updated_at = new Date().toISOString();
 
         const { data, error } = await supabase
@@ -792,7 +1012,7 @@ app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) =>
 // ================== EXPENSES ROUTES ==================
 
 // Get all expenses (with optional date range and category filter)
-app.get('/api/expenses', authenticateToken, async (req, res) => {
+app.get('/api/expenses', async (req, res) => {
     try {
         const { startDate, endDate, category } = req.query;
 
@@ -813,7 +1033,7 @@ app.get('/api/expenses', authenticateToken, async (req, res) => {
 });
 
 // Create expense
-app.post('/api/expenses', authenticateToken, async (req, res) => {
+app.post('/api/expenses', async (req, res) => {
     try {
         const { category, description, amount, expense_date } = req.body;
 
@@ -838,7 +1058,7 @@ app.post('/api/expenses', authenticateToken, async (req, res) => {
 });
 
 // Update expense (founder only)
-app.put('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
+app.put('/api/expenses/:id', async (req, res) => {
     try {
         const { category, description, amount, expense_date } = req.body;
 
@@ -864,7 +1084,7 @@ app.put('/api/expenses/:id', authenticateToken, requireFounder, async (req, res)
 });
 
 // Delete expense (founder only)
-app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
+app.delete('/api/expenses/:id', async (req, res) => {
     try {
         const { error } = await supabase
             .from('expenses')
@@ -881,7 +1101,7 @@ app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, r
 
 // ================== GST REPORT ROUTES ==================
 
-app.get('/api/reports/gst', authenticateToken, async (req, res) => {
+app.get('/api/reports/gst', async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
@@ -961,7 +1181,7 @@ app.get('/api/reports/gst', authenticateToken, async (req, res) => {
 
 // ================== PROFIT & LOSS ROUTES ==================
 
-app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
+app.get('/api/reports/profit-loss', async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
@@ -1039,13 +1259,13 @@ app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
 
 // ================== BILL IMAGE UPLOAD & EXTRACTION ==================
 
-app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
+app.post('/api/inventory/upload-bill', singleBill, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const fileName = `bill_${Date.now()}_${req.file.originalname}`;
+        const fileName = `bill_${randomUUID()}.${req.file.mimetype === 'application/pdf' ? 'pdf' : 'jpg'}`;
         let imageBuffer = req.file.buffer;
         let mimeType = req.file.mimetype;
 
@@ -1074,7 +1294,17 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
         // 2. Read the bill with the offline extractor (api/extract_bill.py). It runs
         // in the same deployment, so the image never leaves Vercel and no API key or
         // third-party service is involved.
-        const extractorUrl = `https://${req.headers.host}/api/extract_bill`;
+        const extractorUrl = process.env.INTERNAL_EXTRACTOR_URL
+            || (process.env.VERCEL_URL
+                ? `https://${process.env.VERCEL_URL}/api/extract_bill`
+                : `http://127.0.0.1:${PORT}/api/extract_bill`);
+
+        const removeStoredBill = async () => {
+            const { error: cleanupError } = await supabase.storage
+                .from('bill-images')
+                .remove([uploadData.path]);
+            if (cleanupError) console.error('Failed to clean up bill upload:', cleanupError.message);
+        };
 
         let extractResponse;
         try {
@@ -1090,12 +1320,14 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
             });
         } catch (fetchErr) {
             console.error('Could not reach the bill extractor:', fetchErr);
+            await removeStoredBill();
             return res.status(502).json({ error: 'Bill reader is unavailable. Please try again.' });
         }
 
         if (!extractResponse.ok) {
             const detail = await extractResponse.text().catch(() => '');
             console.error('Bill extractor returned', extractResponse.status, detail);
+            await removeStoredBill();
             return res.status(502).json({ error: 'Could not read this bill. Try a clearer, straighter photo.' });
         }
 
@@ -1106,6 +1338,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
             extractedData = await extractResponse.json();
         } catch (parseError) {
             console.error('Bill extractor sent malformed JSON:', parseError);
+            await removeStoredBill();
             return res.status(500).json({ error: 'Failed to extract structured data from image' });
         }
 
@@ -1182,7 +1415,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
 });
 
 // Get uploaded bill image URL (for preview)
-app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) => {
+app.get('/api/inventory/bill-image/:path', async (req, res) => {
     try {
         const { data, error } = await supabase.storage
             .from('bill-images')
@@ -1199,7 +1432,7 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) =
 // Photos uploaded here land in the public `product-photos` bucket and the URL
 // is stored on products.image_url, which the storefront reads directly.
 
-app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, res) => {
+app.post('/api/products/:id/photo', singlePhoto, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
@@ -1276,7 +1509,7 @@ app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, 
     }
 });
 
-app.delete('/api/products/:id/photo', authenticateToken, async (req, res) => {
+app.delete('/api/products/:id/photo', async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -1310,7 +1543,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server only if not in Vercel environment
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
     app.listen(PORT, () => {
         console.log(`ðŸš€ Server running on http://localhost:${PORT}`);
         console.log(`ðŸ“¦ API ready at http://localhost:${PORT}/api`);

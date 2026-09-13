@@ -79,7 +79,7 @@ export function Users() {
         }
     }
 
-    const handleDeleteUser = async (userId: string, userName: string) => {
+    const handleDeleteUser = async () => {
         alert('User deletion is disabled for security. Please manage users through Supabase Dashboard.')
     }
 
@@ -204,7 +204,7 @@ export function Users() {
                                         {user.role}
                                     </div>
                                     <button
-                                        onClick={(e) => { e.stopPropagation(); handleDeleteUser(user.id, user.full_name || user.email); }}
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteUser(); }}
                                         className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-colors"
                                         title="Remove User"
                                     >

@@ -96,15 +96,6 @@ export function SalesBills() {
         }).format(value)
     }
 
-    const formatDate = (dateStr: string) => {
-        try {
-            const date = new Date(dateStr)
-            return date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
-        } catch {
-            return dateStr
-        }
-    }
-
     const formatDateTime = (dateStr: string) => {
         try {
             const date = new Date(dateStr)
