@@ -3,7 +3,7 @@ import { Button } from '../ui';
 import type { BillExtractedData } from '../../lib/api';
 
 interface BillImageUploadProps {
-    onDataExtracted: (data: BillExtractedData) => void;
+    onDataExtracted: (data: BillExtractedData, storagePath: string) => void;
 }
 
 export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
@@ -50,7 +50,7 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
             console.log('[BillUpload] Response received:', response);
 
             if (response.success) {
-                onDataExtracted(response.extracted_data);
+                onDataExtracted(response.extracted_data, response.storage_path);
                 setPreview(null);
             } else {
                 setError('Failed to extract data from bill image');

@@ -127,6 +127,14 @@ export interface VendorBill {
     sgst_rate: number;
     igst_rate: number;
     gst_amount: number;
+    subtotal?: number;
+    discount_amount?: number;
+    packing_charges?: number;
+    taxable_value?: number;
+    cgst_amount?: number;
+    sgst_amount?: number;
+    igst_amount?: number;
+    bill_image_path?: string | null;
     created_at: string;
 }
 
@@ -498,6 +506,11 @@ export interface BillExtractedData {
     transaction: {
         is_local: boolean;
     };
+    // Bill-level discount and packing read off the invoice (absent on older readers)
+    charges?: {
+        discount_amount: number;
+        packing_charges: number;
+    };
     items: Array<{
         saree_name: string;
         material: string;
@@ -525,24 +538,10 @@ export const inventoryApi = {
         const formData = new FormData();
         formData.append('billImage', file);
 
-        // Get the Supabase session token from localStorage or cookies
-        let token: string | null = null;
-
-        // Try to get token from cookie first
-        token = document.cookie.split('; ').find(row => row.startsWith('token='))?.split('=')[1] || null;
-
-        // If not in cookie, try to get from Supabase session in localStorage
-        if (!token) {
-            try {
-                const supabaseSession = localStorage.getItem('sb-ndheubawdszpumtzwolm-auth-token');
-                if (supabaseSession) {
-                    const sessionData = JSON.parse(supabaseSession);
-                    token = sessionData?.access_token || null;
-                }
-            } catch (e) {
-                console.error('Failed to parse Supabase session:', e);
-            }
-        }
+        // Same token lookup as every other call. The old code read the session from a
+        // localStorage key hard-wired to the cloud Supabase project, so on any other
+        // Supabase (the VPS) it sent no token and the upload got 401 "Access denied".
+        const token = await getAuthToken();
 
         const headers: HeadersInit = {};
         if (token) {

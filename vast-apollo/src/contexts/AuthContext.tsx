@@ -52,11 +52,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const fetchProfile = async (userId: string) => {
         try {
             console.log('Fetching profile for user:', userId)
-            const { data, error } = await supabase
-                .from('profiles')
-                .select('*')
-                .eq('id', userId)
-                .single()
+            // Bounded on purpose. This runs from onAuthStateChange, which is outside
+            // the mount effect's 5s safety timeout, so a request that never settles
+            // leaves isLoading true forever and the app sits on a spinner with no
+            // error. Failing after 8s at least lets the UI move on.
+            const { data, error } = await Promise.race([
+                supabase.from('profiles').select('*').eq('id', userId).single(),
+                new Promise<never>((_, reject) =>
+                    setTimeout(() => reject(new Error('profile fetch timeout')), 8000)
+                )
+            ])
 
             if (error) {
                 console.error('Error fetching profile:', error)
@@ -91,12 +96,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 console.warn('Auth loading timeout - forcing loading to false')
                 setIsLoading(false)
             }
-        }, 5000) // 5 second timeout
+        }, 12000) // outlasts the 10s getSession bound below
 
-        // Get initial session with 3s timeout to prevent hanging
+        // Get initial session, bounded so a dead refresh token can't hang the app.
+        // 10s, not less: a token refresh over slow shop mobile data can take a few
+        // seconds, and hitting this timeout signs the user out.
         const sessionPromise = supabase.auth.getSession()
         const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('getSession timeout')), 3000)
+            setTimeout(() => reject(new Error('getSession timeout')), 10000)
         )
 
         Promise.race([sessionPromise, timeoutPromise]).then(async ({ data: { session } }) => {
@@ -134,24 +141,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            async (_event, session) => {
+            (_event, session) => {
                 if (!mounted) return
 
                 setSession(session)
                 setUser(session?.user ?? null)
 
-                if (session?.user) {
-                    const profileData = await fetchProfile(session.user.id)
-                    if (mounted) {
-                        setProfile(profileData)
+                // Supabase runs this callback while holding its auth lock. Awaiting
+                // another Supabase call in here (the profile fetch) waits on that same
+                // lock, so getSession() above stalled on every reload and the timeout
+                // below wiped a perfectly good login. Fetch once the lock is released.
+                setTimeout(async () => {
+                    if (!mounted) return
+                    if (session?.user) {
+                        const profileData = await fetchProfile(session.user.id)
+                        if (mounted) {
+                            setProfile(profileData)
+                        }
+                    } else {
+                        setProfile(null)
                     }
-                } else {
-                    setProfile(null)
-                }
 
-                if (mounted) {
-                    setIsLoading(false)
-                }
+                    if (mounted) {
+                        setIsLoading(false)
+                    }
+                }, 0)
             }
         )
 

@@ -46,21 +46,35 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const [vendorGstNumber, setVendorGstNumber] = useState('')
     const [isLocalTransaction, setIsLocalTransaction] = useState(true)
 
-    // Bill upload section
+    // Bill upload section; the stored photo is linked to the saved purchase
     const [showUploadSection, setShowUploadSection] = useState(true)
+    const [billImagePath, setBillImagePath] = useState<string | null>(null)
+
+    // Bill-level discount and packing, as printed on the vendor's invoice
+    const [billDiscount, setBillDiscount] = useState('')
+    const [packingCharges, setPackingCharges] = useState('')
 
     // Success state
     const [saveSuccess, setSaveSuccess] = useState(false)
     const [savedProducts, setSavedProducts] = useState<Product[]>([])
 
     // Calculate totals
+    // Same order as a printed tax invoice: GST is charged on the items after the
+    // bill discount, plus packing (40 × 650 − 1,300 + 120 = 24,820 taxable).
+    const round2 = (n: number) => Math.round(n * 100) / 100
     const subtotal = items.reduce((sum, item) => sum + (item.cost_price * item.quantity), 0)
-    const gstRate = isLocalTransaction ? 5.0 : 5.0 // Same 5% total
+    const discountAmount = parseFloat(billDiscount) || 0
+    const packingAmount = parseFloat(packingCharges) || 0
+    const taxableValue = round2(subtotal - discountAmount + packingAmount)
+    const gstRate = 5.0 // CGST 2.5% + SGST 2.5%, or IGST 5%
     const cgstRate = isLocalTransaction ? 2.5 : 0
     const sgstRate = isLocalTransaction ? 2.5 : 0
     const igstRate = isLocalTransaction ? 0 : 5.0
-    const gstAmount = (subtotal * gstRate) / 100
-    const totalAmount = subtotal + gstAmount
+    const cgstAmount = round2(taxableValue * cgstRate / 100)
+    const sgstAmount = round2(taxableValue * sgstRate / 100)
+    const igstAmount = round2(taxableValue * igstRate / 100)
+    const gstAmount = isLocalTransaction ? cgstAmount + sgstAmount : igstAmount
+    const totalAmount = round2(taxableValue + gstAmount)
     const photoCount = itemPhotos.filter(Boolean).length
     const missingCategoryCount = items.filter((item) => !item.saree_type).length
 
@@ -132,13 +146,16 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         setItemPhotos(itemPhotos.map((photo, i) => (i === index ? file : photo)))
     }
 
-    const handleBillDataExtracted = (extractedData: BillExtractedData) => {
+    const handleBillDataExtracted = (extractedData: BillExtractedData, storagePath: string) => {
+        setBillImagePath(storagePath || null)
         // Populate vendor fields
         setCompanyName(extractedData.vendor.company_name)
         setBillNumber(extractedData.vendor.bill_number)
         setBillDate(extractedData.vendor.bill_date)
         setVendorGstNumber(extractedData.vendor.gst_number)
         setIsLocalTransaction(extractedData.transaction.is_local)
+        setBillDiscount(extractedData.charges?.discount_amount ? String(extractedData.charges.discount_amount) : '')
+        setPackingCharges(extractedData.charges?.packing_charges ? String(extractedData.charges.packing_charges) : '')
 
         // Populate items
         if (extractedData.items.length > 0) {
@@ -221,7 +238,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                 cgst_rate: cgstRate,
                 sgst_rate: sgstRate,
                 igst_rate: igstRate,
-                gst_amount: gstAmount
+                gst_amount: gstAmount,
+                subtotal,
+                discount_amount: discountAmount,
+                packing_charges: packingAmount,
+                taxable_value: taxableValue,
+                cgst_amount: cgstAmount,
+                sgst_amount: sgstAmount,
+                igst_amount: igstAmount,
+                bill_image_path: billImagePath
             }, productsToCreates)
 
             const createdProducts: Product[] = result.products || []
@@ -273,6 +298,9 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         setItems([{ ...INITIAL_PRODUCT }])
         setDiscountPercents([''])
         setShowUploadSection(true)
+        setBillImagePath(null)
+        setBillDiscount('')
+        setPackingCharges('')
         onClose()
     }
 
@@ -456,6 +484,24 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                 </label>
                             </div>
                         </div>
+                        <Input
+                            label="Bill Discount (₹)"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={billDiscount}
+                            onChange={(e) => setBillDiscount(e.target.value)}
+                            placeholder="0"
+                        />
+                        <Input
+                            label="Packing / Other Charges (₹)"
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={packingCharges}
+                            onChange={(e) => setPackingCharges(e.target.value)}
+                            placeholder="0"
+                        />
                     </div>
                 </div>
 
@@ -610,15 +656,33 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                 <span className="text-[var(--color-text-muted)]">Subtotal:</span>
                                 <span className="font-medium text-[var(--color-text)]">₹{subtotal.toFixed(2)}</span>
                             </div>
+                            {discountAmount > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-[var(--color-text-muted)]">Discount:</span>
+                                    <span className="font-medium text-[var(--color-text)]">−₹{discountAmount.toFixed(2)}</span>
+                                </div>
+                            )}
+                            {packingAmount > 0 && (
+                                <div className="flex justify-between">
+                                    <span className="text-[var(--color-text-muted)]">Packing:</span>
+                                    <span className="font-medium text-[var(--color-text)]">+₹{packingAmount.toFixed(2)}</span>
+                                </div>
+                            )}
+                            {(discountAmount > 0 || packingAmount > 0) && (
+                                <div className="flex justify-between">
+                                    <span className="text-[var(--color-text-muted)]">Taxable Value:</span>
+                                    <span className="font-medium text-[var(--color-text)]">₹{taxableValue.toFixed(2)}</span>
+                                </div>
+                            )}
                             {isLocalTransaction ? (
                                 <>
                                     <div className="flex justify-between">
                                         <span className="text-[var(--color-text-muted)]">CGST (2.5%):</span>
-                                        <span className="font-medium text-[var(--color-text)]">₹{(gstAmount / 2).toFixed(2)}</span>
+                                        <span className="font-medium text-[var(--color-text)]">₹{cgstAmount.toFixed(2)}</span>
                                     </div>
                                     <div className="flex justify-between">
                                         <span className="text-[var(--color-text-muted)]">SGST (2.5%):</span>
-                                        <span className="font-medium text-[var(--color-text)]">₹{(gstAmount / 2).toFixed(2)}</span>
+                                        <span className="font-medium text-[var(--color-text)]">₹{sgstAmount.toFixed(2)}</span>
                                     </div>
                                 </>
                             ) : (

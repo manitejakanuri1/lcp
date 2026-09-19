@@ -131,6 +131,25 @@ const requireFounder = (req, res, next) => {
     next();
 };
 
+// Office staff (founder, accounting). Salesmen only get the POS and Search routes,
+// matching the screens: without this a salesman's login could still pull cost
+// prices, purchases and the P&L straight from the API.
+const requireStaff = (req, res, next) => {
+    if (!['founder', 'accounting'].includes(req.user?.role)) {
+        return res.status(403).json({ error: 'Not allowed for your role' });
+    }
+    next();
+};
+
+// What a salesman may see of a product: no buying price, cost code or supplier.
+const COST_FIELDS = ['cost_price', 'cost_code', 'vendor_name', 'vendor_bill_id', 'purchase_date'];
+const forRole = (req, product) => {
+    if (!product || req.user?.role !== 'salesman') return product;
+    const visible = { ...product };
+    for (const field of COST_FIELDS) delete visible[field];
+    return visible;
+};
+
 // ================== AUTH ROUTES ==================
 
 // Login with username
@@ -260,7 +279,10 @@ app.get('/api/auth/me', authenticateToken, async (req, res) => {
 // ================== PRODUCTS ROUTES ==================
 
 // Get all products
-app.get('/api/products', async (req, res) => {
+// Reads are guarded too, not just writes: these rows carry cost_price, cost_code
+// and vendor_name, so an open GET hands a competitor the buying price and the
+// supplier for every saree in the shop.
+app.get('/api/products', authenticateToken, async (req, res) => {
     try {
         const { status, search, type, color, minPrice, maxPrice, vendor, saree_name } = req.query;
 
@@ -273,20 +295,22 @@ app.get('/api/products', async (req, res) => {
         if (minPrice) query = query.gte('selling_price_a', parseFloat(minPrice));
         if (maxPrice) query = query.lte('selling_price_a', parseFloat(maxPrice));
         if (search) {
-            query = query.or(`sku.ilike.%${search}%,material.ilike.%${search}%,color.ilike.%${search}%,vendor_name.ilike.%${search}%,saree_name.ilike.%${search}%`);
+            // Commas, brackets and wildcards would let the text rewrite the filter itself.
+            const term = String(search).replace(/[,()*%\\]/g, ' ').trim();
+            query = query.or(`sku.ilike.%${term}%,material.ilike.%${term}%,color.ilike.%${term}%,vendor_name.ilike.%${term}%,saree_name.ilike.%${term}%`);
         }
 
         const { data, error } = await query.order('created_at', { ascending: false });
 
         if (error) throw error;
-        res.json(data);
+        res.json((data || []).map((product) => forRole(req, product)));
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch products' });
     }
 });
 
 // Get product by SKU
-app.get('/api/products/sku/:sku', async (req, res) => {
+app.get('/api/products/sku/:sku', authenticateToken, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('products')
@@ -295,14 +319,17 @@ app.get('/api/products/sku/:sku', async (req, res) => {
             .single();
 
         if (error) throw error;
-        res.json(data);
+        res.json(forRole(req, data));
     } catch (err) {
         res.status(404).json({ error: 'Product not found' });
     }
 });
 
 // Create product
-app.post('/api/products', async (req, res) => {
+// authenticateToken is not optional here: without it anyone who knows the URL can
+// add, reprice or delete stock. The photo routes below were already guarded; these
+// three were missed.
+app.post('/api/products', authenticateToken, requireStaff, async (req, res) => {
     try {
         console.log('Creating product:', req.body);
         const { data, error } = await supabase
@@ -323,12 +350,16 @@ app.post('/api/products', async (req, res) => {
 });
 
 // Update product
-app.put('/api/products/:id', async (req, res) => {
+app.put('/api/products/:id', authenticateToken, async (req, res) => {
     try {
         console.log('Updating product:', req.params.id, req.body);
+        // A salesman's only product change is the stock count after a POS sale.
+        const changes = req.user?.role === 'salesman'
+            ? { quantity: req.body.quantity, status: req.body.status }
+            : req.body;
         const { data, error } = await supabase
             .from('products')
-            .update(req.body)
+            .update(changes)
             .eq('id', req.params.id)
             .select()
             .single();
@@ -338,7 +369,7 @@ app.put('/api/products/:id', async (req, res) => {
             throw error;
         }
         console.log('Update result:', data);
-        res.json(data);
+        res.json(forRole(req, data));
     } catch (err) {
         console.error('Failed to update product:', err);
         res.status(500).json({ error: 'Failed to update product' });
@@ -346,7 +377,7 @@ app.put('/api/products/:id', async (req, res) => {
 });
 
 // Delete product
-app.delete('/api/products/:id', async (req, res) => {
+app.delete('/api/products/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         console.log('Deleting product:', req.params.id);
 
@@ -381,7 +412,7 @@ app.delete('/api/products/:id', async (req, res) => {
 // ================== BILLS ROUTES ==================
 
 // Get all bills
-app.get('/api/bills', async (req, res) => {
+app.get('/api/bills', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('bills')
@@ -396,7 +427,7 @@ app.get('/api/bills', async (req, res) => {
 });
 
 // Generate bill number
-app.get('/api/bills/generate-number', async (req, res) => {
+app.get('/api/bills/generate-number', authenticateToken, async (req, res) => {
     try {
         const { data, error } = await supabase.rpc('generate_bill_number');
         if (error) throw error;
@@ -407,7 +438,7 @@ app.get('/api/bills/generate-number', async (req, res) => {
 });
 
 // Get single bill by ID with product details
-app.get('/api/bills/:id', async (req, res) => {
+app.get('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data: bill, error: billError } = await supabase
             .from('bills')
@@ -432,9 +463,20 @@ app.get('/api/bills/:id', async (req, res) => {
 });
 
 // Create bill
-app.post('/api/bills', async (req, res) => {
+app.post('/api/bills', authenticateToken, async (req, res) => {
     try {
         const { bill, items } = req.body;
+
+        // Buying prices come from the database, not from the till: a salesman's screen
+        // never receives cost_price, and a posted cost could be anything.
+        const { data: costRows, error: costError } = await supabase
+            .from('products')
+            .select('id, cost_price')
+            .in('id', items.map((item) => item.product_id));
+        if (costError) throw costError;
+        const costOf = Object.fromEntries(costRows.map((p) => [p.id, parseFloat(p.cost_price) || 0]));
+        for (const item of items) item.cost_price = costOf[item.product_id] ?? 0;
+        bill.total_cost = items.reduce((sum, item) => sum + item.cost_price * (item.quantity || 1), 0);
 
         // Create bill
         const { data: billData, error: billError } = await supabase
@@ -464,7 +506,7 @@ app.post('/api/bills', async (req, res) => {
 });
 
 // Update bill
-app.put('/api/bills/:id', async (req, res) => {
+app.put('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('bills')
@@ -482,7 +524,7 @@ app.put('/api/bills/:id', async (req, res) => {
 });
 
 // Delete bill (and restore inventory)
-app.delete('/api/bills/:id', async (req, res) => {
+app.delete('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         console.log('Deleting bill:', req.params.id);
 
@@ -544,7 +586,7 @@ app.delete('/api/bills/:id', async (req, res) => {
 
 // ================== ANALYTICS ROUTES ==================
 
-app.get('/api/analytics/summary', async (req, res) => {
+app.get('/api/analytics/summary', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
@@ -560,7 +602,7 @@ app.get('/api/analytics/summary', async (req, res) => {
     }
 });
 
-app.get('/api/analytics/daily-sales', async (req, res) => {
+app.get('/api/analytics/daily-sales', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { days } = req.query;
 
@@ -578,7 +620,7 @@ app.get('/api/analytics/daily-sales', async (req, res) => {
 // ================== VENDOR BILLS ROUTES ==================
 
 // Create vendor bill with products
-app.post('/api/vendor-bills', async (req, res) => {
+app.post('/api/vendor-bills', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { bill, products } = req.body;
 
@@ -623,7 +665,7 @@ app.post('/api/vendor-bills', async (req, res) => {
 });
 
 // Get all vendor bills
-app.get('/api/vendor-bills', async (req, res) => {
+app.get('/api/vendor-bills', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('vendor_bills')
@@ -638,7 +680,7 @@ app.get('/api/vendor-bills', async (req, res) => {
 });
 
 // Get vendor bill by ID with products
-app.get('/api/vendor-bills/:id', async (req, res) => {
+app.get('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data: bill, error: billError } = await supabase
             .from('vendor_bills')
@@ -662,7 +704,7 @@ app.get('/api/vendor-bills/:id', async (req, res) => {
 });
 
 // Update vendor bill
-app.put('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+app.put('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { company_name, bill_number, bill_date, vendor_gst_number, is_local_transaction, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate } = req.body;
 
@@ -694,7 +736,7 @@ app.put('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
 });
 
 // Delete vendor bill (products cascade-deleted via FK)
-app.delete('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
+app.delete('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { error } = await supabase
             .from('vendor_bills')
@@ -711,7 +753,7 @@ app.delete('/api/vendor-bills/:id', authenticateToken, async (req, res) => {
 
 // ================== USERS ROUTES ==================
 
-app.get('/api/users', authenticateToken, async (req, res) => {
+app.get('/api/users', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { data, error } = await supabase
             .from('profiles')
@@ -792,7 +834,7 @@ app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) =>
 // ================== EXPENSES ROUTES ==================
 
 // Get all expenses (with optional date range and category filter)
-app.get('/api/expenses', authenticateToken, async (req, res) => {
+app.get('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate, category } = req.query;
 
@@ -813,7 +855,7 @@ app.get('/api/expenses', authenticateToken, async (req, res) => {
 });
 
 // Create expense
-app.post('/api/expenses', authenticateToken, async (req, res) => {
+app.post('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { category, description, amount, expense_date } = req.body;
 
@@ -881,7 +923,7 @@ app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, r
 
 // ================== GST REPORT ROUTES ==================
 
-app.get('/api/reports/gst', authenticateToken, async (req, res) => {
+app.get('/api/reports/gst', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
@@ -961,7 +1003,7 @@ app.get('/api/reports/gst', authenticateToken, async (req, res) => {
 
 // ================== PROFIT & LOSS ROUTES ==================
 
-app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
+app.get('/api/reports/profit-loss', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
@@ -995,7 +1037,10 @@ app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
             if (!monthlyData[month]) {
                 monthlyData[month] = { month, revenue: 0, cogs: 0, expenses: 0, expense_breakdown: {} };
             }
-            monthlyData[month].revenue += parseFloat(sale.total_amount) || 0;
+            // Bills are stored GST-inclusive (POS adds 5% on top of the tag price).
+            // That 5% is collected for the government, so revenue excludes it —
+            // the same split the GST report uses.
+            monthlyData[month].revenue += (parseFloat(sale.total_amount) || 0) / 1.05;
             monthlyData[month].cogs += parseFloat(sale.total_cost) || 0;
         }
 
@@ -1014,6 +1059,7 @@ app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
 
         let totalRevenue = 0, totalCogs = 0, totalExpenses = 0;
         for (const m of months) {
+            m.revenue = Math.round(m.revenue * 100) / 100; // paise, after the GST split
             m.gross_profit = m.revenue - m.cogs;
             m.net_profit = m.gross_profit - m.expenses;
             totalRevenue += m.revenue;
@@ -1039,30 +1085,57 @@ app.get('/api/reports/profit-loss', authenticateToken, async (req, res) => {
 
 // ================== BILL IMAGE UPLOAD & EXTRACTION ==================
 
-app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billImage'), async (req, res) => {
+// Maps the Tesseract reader's flat answer onto the {vendor, transaction, items}
+// shape that extract_bill.py returns and the validation below expects.
+const fromTesseract = (d) => ({
+    vendor: {
+        company_name: d.company_name || '',
+        gst_number: d.vendor_gst_number || '',
+        bill_number: d.bill_number || '',
+        bill_date: d.bill_date || ''
+    },
+    transaction: { is_local: d.is_local_transaction !== false },
+    charges: {
+        discount_amount: d.discount_amount || 0,
+        packing_charges: d.packing_charges || 0
+    },
+    items: (d.items || []).map((item) => ({
+        saree_name: item.saree_name,
+        material: item.material,
+        quantity: item.quantity,
+        cost_price: item.cost_price,
+        hsn_code: item.hsn_code
+    }))
+});
+
+app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.single('billImage'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        const fileName = `bill_${Date.now()}_${req.file.originalname}`;
-        let imageBuffer = req.file.buffer;
-        let mimeType = req.file.mimetype;
-
-        // Optimize image if it's not a PDF
-        if (mimeType.startsWith('image/')) {
-            imageBuffer = await sharp(req.file.buffer)
+        // The reader always gets the untouched original (best OCR accuracy); only the
+        // stored copy is shrunk. WebP q80 at <=2000px keeps small print sharp at
+        // roughly a third less size than JPEG.
+        const imageBuffer = req.file.buffer;
+        const mimeType = req.file.mimetype;
+        const isImage = mimeType.startsWith('image/');
+        const fileName = isImage
+            ? `bill_${Date.now()}.webp`
+            : `bill_${Date.now()}_${req.file.originalname}`;
+        const storedBuffer = isImage
+            ? await sharp(imageBuffer)
+                .rotate()
                 .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
-                .jpeg({ quality: 85 })
-                .toBuffer();
-            mimeType = 'image/jpeg';
-        }
+                .webp({ quality: 80, effort: 6 })
+                .toBuffer()
+            : imageBuffer;
 
         // 1. Upload to Supabase Storage
         const { data: uploadData, error: uploadError } = await supabase.storage
             .from('bill-images')
-            .upload(fileName, imageBuffer, {
-                contentType: mimeType,
+            .upload(fileName, storedBuffer, {
+                contentType: isImage ? 'image/webp' : mimeType,
                 cacheControl: '3600',
             });
 
@@ -1074,20 +1147,29 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
         // 2. Read the bill with the offline extractor (api/extract_bill.py). It runs
         // in the same deployment, so the image never leaves Vercel and no API key or
         // third-party service is involved.
-        const extractorUrl = `https://${req.headers.host}/api/extract_bill`;
+        // On the VPS the bill is read by the Tesseract service (lakshmi-ocr) instead,
+        // which takes a multipart upload and answers in its own flat shape.
+        const tesseractUrl = process.env.TESSERACT_OCR_URL;
+        const extractorUrl = process.env.EXTRACTOR_URL || `https://${req.headers.host}/api/extract_bill`;
 
         let extractResponse;
         try {
-            extractResponse = await fetch(extractorUrl, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/octet-stream',
-                    ...(process.env.INTERNAL_API_SECRET
-                        ? { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET }
-                        : {})
-                },
-                body: imageBuffer
-            });
+            if (tesseractUrl) {
+                const form = new FormData();
+                form.append('file', new Blob([imageBuffer], { type: mimeType }), fileName);
+                extractResponse = await fetch(tesseractUrl, { method: 'POST', body: form });
+            } else {
+                extractResponse = await fetch(extractorUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/octet-stream',
+                        ...(process.env.INTERNAL_API_SECRET
+                            ? { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET }
+                            : {})
+                    },
+                    body: imageBuffer
+                });
+            }
         } catch (fetchErr) {
             console.error('Could not reach the bill extractor:', fetchErr);
             return res.status(502).json({ error: 'Bill reader is unavailable. Please try again.' });
@@ -1104,6 +1186,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
         let extractedData;
         try {
             extractedData = await extractResponse.json();
+            if (tesseractUrl) extractedData = fromTesseract(extractedData.extracted_data || {});
         } catch (parseError) {
             console.error('Bill extractor sent malformed JSON:', parseError);
             return res.status(500).json({ error: 'Failed to extract structured data from image' });
@@ -1126,6 +1209,10 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
             },
             transaction: {
                 is_local: extractedData.transaction?.is_local ?? true
+            },
+            charges: {
+                discount_amount: parseFloat(extractedData.charges?.discount_amount) || 0,
+                packing_charges: parseFloat(extractedData.charges?.packing_charges) || 0
             },
             items: (extractedData.items || []).map((item) => {
                 const discountPrice = parseFloat(item.selling_price) || 0;
@@ -1182,7 +1269,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, upload.single('billIma
 });
 
 // Get uploaded bill image URL (for preview)
-app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) => {
+app.get('/api/inventory/bill-image/:path', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { data, error } = await supabase.storage
             .from('bill-images')
@@ -1199,7 +1286,7 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, async (req, res) =
 // Photos uploaded here land in the public `product-photos` bucket and the URL
 // is stored on products.image_url, which the storefront reads directly.
 
-app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, res) => {
+app.post('/api/products/:id/photo', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });
@@ -1221,20 +1308,21 @@ app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, 
             return res.status(404).json({ error: 'Product not found' });
         }
 
-        // .rotate() honours EXIF orientation so phone photos aren't sideways
+        // .rotate() honours EXIF orientation so phone photos aren't sideways.
+        // WebP q80 is 30-40% smaller than JPEG at no visible loss.
         const imageBuffer = await sharp(req.file.buffer)
             .rotate()
             .resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
-            .jpeg({ quality: 80 })
+            .webp({ quality: 80, effort: 6 })
             .toBuffer();
 
-        const photoName = `${Date.now()}.jpg`;
+        const photoName = `${Date.now()}.webp`;
         const fileName = `${id}/${photoName}`;
 
         const { error: uploadError } = await supabase.storage
             .from('product-photos')
             .upload(fileName, imageBuffer, {
-                contentType: 'image/jpeg',
+                contentType: 'image/webp',
                 cacheControl: '3600',
                 upsert: true,
             });
@@ -1276,7 +1364,7 @@ app.post('/api/products/:id/photo', authenticateToken, singlePhoto, async (req, 
     }
 });
 
-app.delete('/api/products/:id/photo', authenticateToken, async (req, res) => {
+app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { id } = req.params;
 
