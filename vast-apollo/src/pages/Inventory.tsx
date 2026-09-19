@@ -315,7 +315,7 @@ export function Inventory() {
                 )}
 
                 {/* Add Product Modal */}
-                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="lg">
+                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="wide">
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Input
@@ -496,7 +496,7 @@ export function Inventory() {
                     isOpen={!!selectedProduct}
                     onClose={() => { setSelectedProduct(null); setIsEditMode(false); }}
                     title={isEditMode ? "Edit Product" : "Product Details"}
-                    size="md"
+                    size="wide"
                 >
                     {selectedProduct && !isEditMode && (
                         <div className="space-y-6">

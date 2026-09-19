@@ -6,7 +6,7 @@ interface ModalProps {
     onClose: () => void
     title?: string
     children: ReactNode
-    size?: 'sm' | 'md' | 'lg' | 'xl'
+    size?: 'sm' | 'md' | 'lg' | 'xl' | 'wide' | 'full'
     footer?: ReactNode
 }
 
@@ -33,7 +33,10 @@ export function Modal({ isOpen, onClose, title, children, size = 'md', footer }:
         sm: 'max-w-sm',
         md: 'max-w-md',
         lg: 'max-w-lg',
-        xl: 'max-w-xl'
+        xl: 'max-w-xl',
+        // Phone-sized on small screens, then use the laptop's width from lg up
+        wide: 'max-w-lg lg:max-w-4xl',
+        full: 'max-w-lg lg:max-w-[min(92vw,1200px)]'
     }
 
     return (

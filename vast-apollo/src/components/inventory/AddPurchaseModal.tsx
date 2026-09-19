@@ -381,7 +381,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     }
 
     return (
-        <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="lg">
+        <Modal isOpen={isOpen} onClose={handleClose} title="📥 Stock In (Receive Purchase)" size="full">
             <form onSubmit={handleSubmit} className="space-y-6">
                 {/* Bill Image Upload Section */}
                 {showUploadSection && (
@@ -427,7 +427,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
 
                 {/* Bill Header */}
                 <div className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)]">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+                    {/* Laptops: GST | Company (double) | Bill No, then Date | Type | Discount | Packing */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-4 gap-4 mb-4">
                         <Input
                             label="Company GST Number"
                             value={vendorGstNumber}
@@ -436,13 +437,15 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             maxLength={15}
                             required
                         />
-                        <Input
-                            label="Company Name (Vendor)"
-                            value={companyName}
-                            onChange={(e) => setCompanyName(e.target.value)}
-                            required
-                            placeholder="e.g. Saree World"
-                        />
+                        <div className="lg:col-span-2">
+                            <Input
+                                label="Company Name (Vendor)"
+                                value={companyName}
+                                onChange={(e) => setCompanyName(e.target.value)}
+                                required
+                                placeholder="e.g. Saree World"
+                            />
+                        </div>
                         <Input
                             label="Bill Number"
                             value={billNumber}
@@ -451,7 +454,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                         />
                     </div>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                         <Input
                             type="date"
                             label="Bill Date"
@@ -514,12 +517,13 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                         </Button>
                     </div>
 
-                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 lg:max-h-none lg:overflow-visible lg:pr-0">
                         {items.map((item, index) => (
-                            <div key={index} className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)] relative">
+                            <div key={index} className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)] relative lg:grid lg:grid-cols-8 lg:gap-3 lg:items-end">
                                 <span className="absolute top-2 right-2 text-xs font-mono text-[var(--color-text-muted)]">#{index + 1}</span>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-3 lg:contents">
+                                    <div className="lg:col-span-2">
                                     <Input
                                         label="Saree Name"
                                         value={item.saree_name}
@@ -527,6 +531,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         required
                                         placeholder="Full name"
                                     />
+                                    </div>
                                     <Input
                                         label="Material (optional)"
                                         value={item.material || ''}
@@ -542,7 +547,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-3 lg:contents">
                                     <Input
                                         label="Cost Price (₹)"
                                         type="number"
@@ -595,7 +600,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                     />
                                 </div>
 
-                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:contents">
                                     <Input
                                         label="Cost Code"
                                         value={item.cost_code || ''}
@@ -635,7 +640,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                 </div>
 
                                 {/* Uploaded against this saree once the bill is saved */}
-                                <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                                <div className="mt-3 pt-3 border-t border-[var(--color-border)] lg:col-span-4 lg:mt-0 lg:pt-0 lg:border-t-0">
                                     <PhotoPicker
                                         file={itemPhotos[index] || null}
                                         onChange={(file) => setItemPhoto(index, file)}

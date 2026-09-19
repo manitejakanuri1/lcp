@@ -251,7 +251,7 @@ export function SalesBills() {
                     isOpen={(!!selectedBill && !isEditMode) || isDetailLoading}
                     onClose={() => setSelectedBill(null)}
                     title="Bill Details"
-                    size="lg"
+                    size="wide"
                 >
                     {isDetailLoading ? (
                         <div className="flex justify-center py-12">
@@ -361,6 +361,7 @@ export function SalesBills() {
                     isOpen={isEditMode}
                     onClose={() => { setIsEditMode(false); setSelectedBill(null) }}
                     title={`Edit Bill #${selectedBill?.bill_number}`}
+                    size="wide"
                 >
                     {selectedBill && (
                         <div className="space-y-4">

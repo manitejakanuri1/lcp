@@ -56,7 +56,7 @@ export function PhotoPicker({ file, onChange, disabled = false }: PhotoPickerPro
     };
 
     return (
-        <div className="space-y-3">
+        <div className="space-y-3 lg:space-y-1.5">
             <div className="flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-[var(--color-text)]">Website Photo</h4>
                 {file && !disabled && (
@@ -73,7 +73,7 @@ export function PhotoPicker({ file, onChange, disabled = false }: PhotoPickerPro
             <div
                 onClick={() => !disabled && fileInputRef.current?.click()}
                 className={`
-                    border-2 border-dashed rounded-xl p-4 text-center
+                    border-2 border-dashed rounded-xl p-4 lg:py-2.5 text-center
                     transition-all duration-200
                     ${disabled
                         ? 'border-[var(--color-border)] opacity-60 cursor-not-allowed'
@@ -91,11 +91,12 @@ export function PhotoPicker({ file, onChange, disabled = false }: PhotoPickerPro
                     className="hidden"
                 />
 
-                <div className="space-y-2">
+                {/* Laptops: one slim row (icon + text) instead of a tall drop zone */}
+                <div className="space-y-2 lg:space-y-0 lg:flex lg:items-center lg:gap-3 lg:text-left">
                     {preview ? (
-                        <img src={preview} alt="Saree" className="mx-auto max-h-40 rounded-lg object-contain" />
+                        <img src={preview} alt="Saree" className="mx-auto max-h-40 lg:mx-0 lg:max-h-12 rounded-lg object-contain" />
                     ) : (
-                        <svg className="mx-auto h-10 w-10 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="mx-auto h-10 w-10 lg:mx-0 lg:h-7 lg:w-7 shrink-0 text-[var(--color-text-muted)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                         </svg>
