@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ThemeToggle } from '../ui'
 import { useAuth } from '../../contexts/AuthContext'
-import {
+import { Globe,
     LayoutDashboard,
     Package,
     FileText,
@@ -36,6 +36,7 @@ export function Layout({ children }: { children: ReactNode }) {
         { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['founder', 'accounting'] },
         { path: '/inventory', label: 'Inventory', icon: Package, roles: ['founder', 'accounting'] },
         { path: '/purchases', label: 'Purchases', icon: FileText, roles: ['founder', 'accounting'] },
+        { path: '/website', label: 'Website', icon: Globe, roles: ['founder', 'accounting'] },
         { path: '/sales-bills', label: 'Sales', icon: Receipt, roles: ['founder', 'accounting'] },
         { path: '/pos', label: 'POS', icon: ShoppingCart, roles: ['founder', 'salesman'] },
         { path: '/search', label: 'Search', icon: Search, roles: ['founder', 'salesman'] },

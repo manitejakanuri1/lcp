@@ -579,3 +579,59 @@ export const inventoryApi = {
 export const healthCheck = async () => {
     return request<{ status: string; timestamp: string }>('/health');
 };
+
+// ================== WEBSITE PAGE API ==================
+
+export interface ProductColor {
+    id: string;
+    color_name: string;
+    image_url: string | null;
+    sort_order: number;
+}
+
+export interface WebsiteProduct {
+    id: string;
+    sku: string;
+    saree_name: string | null;
+    saree_type: string | null;
+    material: string | null;
+    selling_price_a: number;
+    selling_price_b: number;
+    image_url: string | null;
+    quantity: number;
+    on_website: boolean;
+    created_at: string;
+    product_colors: ProductColor[];
+}
+
+export const websiteApi = {
+    getProducts: async (status: 'todo' | 'live') =>
+        request<WebsiteProduct[]>(`/website/products?status=${status}`),
+
+    update: async (id: string, changes: { saree_type?: string; on_website?: boolean }) =>
+        request<{ id: string; saree_type: string | null; on_website: boolean }>(`/website/products/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(changes),
+        }),
+
+    addColor: async (productId: string, colorName: string, file: File) => {
+        const formData = new FormData();
+        formData.append('color_name', colorName);
+        formData.append('photo', file);
+        const token = await getAuthToken();
+        const response = await fetch(`${API_BASE}/website/products/${productId}/colors`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+            credentials: 'include',
+        });
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({ error: 'Upload failed' }));
+            throw new Error(error.error || 'Upload failed');
+        }
+        return response.json() as Promise<ProductColor>;
+    },
+
+    removeColor: async (colorId: string) =>
+        request<{ message: string }>(`/website/colors/${colorId}`, { method: 'DELETE' }),
+};

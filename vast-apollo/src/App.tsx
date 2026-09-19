@@ -21,6 +21,7 @@ import { LoginPage } from './pages/Login'
  */
 const Dashboard = lazyPage(() => import('./pages/Dashboard').then(m => ({ default: m.Dashboard })))
 const Inventory = lazyPage(() => import('./pages/Inventory').then(m => ({ default: m.Inventory })))
+const Website = lazyPage(() => import('./pages/Website').then(m => ({ default: m.Website })))
 const POS = lazyPage(() => import('./pages/POS').then(m => ({ default: m.POS })))
 const Search = lazyPage(() => import('./pages/Search').then(m => ({ default: m.Search })))
 const Analytics = lazyPage(() => import('./pages/Analytics').then(m => ({ default: m.Analytics })))
@@ -126,6 +127,15 @@ function AppRoutes() {
         element={
           <ProtectedRoute allowedRoles={['founder', 'accounting']}>
             <Expenses />
+          </ProtectedRoute>
+        }
+      />
+
+      <Route
+        path="/website"
+        element={
+          <ProtectedRoute allowedRoles={['founder', 'accounting']}>
+            <Website />
           </ProtectedRoute>
         }
       />

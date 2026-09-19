@@ -1392,6 +1392,102 @@ app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (re
     }
 });
 
+// ================== WEBSITE PAGE ==================
+// After Stock In, each saree waits here for its website details: category, colour
+// variants (one photo each) and the "show on website" switch. The public site reads
+// the website_products view, never these routes.
+
+// ?status=todo (not on the website yet) or ?status=live
+app.get('/api/website/products', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const live = req.query.status === 'live';
+        const { data, error } = await supabase
+            .from('products')
+            .select('id, sku, saree_name, saree_type, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, sort_order, created_at)')
+            .eq('on_website', live)
+            .eq('status', 'available')
+            .order('created_at', { ascending: false });
+        if (error) throw error;
+        for (const p of data) {
+            p.product_colors.sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
+        }
+        res.json(data);
+    } catch (err) {
+        console.error('Website products error:', err);
+        res.status(500).json({ error: 'Failed to load website products' });
+    }
+});
+
+// Category and the website switch
+app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const changes = {};
+        if (req.body.saree_type !== undefined) changes.saree_type = req.body.saree_type || null;
+        if (req.body.on_website !== undefined) changes.on_website = !!req.body.on_website;
+        const { data, error } = await supabase
+            .from('products').update(changes).eq('id', req.params.id)
+            .select('id, saree_type, on_website').single();
+        if (error) throw error;
+        res.json(data);
+    } catch (err) {
+        console.error('Website product update error:', err);
+        res.status(500).json({ error: 'Failed to update product' });
+    }
+});
+
+// Add one colour with its photo (multipart: photo + color_name)
+app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
+    try {
+        // "red" and "RED" must be the same colour for the website's colour filter.
+        const colorName = String(req.body.color_name || '').trim().toLowerCase()
+            .replace(/\b\w/g, (c) => c.toUpperCase());
+        if (!colorName) return res.status(400).json({ error: 'Colour name is required' });
+        if (!req.file) return res.status(400).json({ error: 'Colour photo is required' });
+
+        const image = await sharp(req.file.buffer)
+            .rotate()
+            .resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 80, effort: 6 })
+            .toBuffer();
+        // Separate prefix from the main photo, whose upload route sweeps its own folder.
+        const path = `colors/${req.params.id}/${Date.now()}.webp`;
+        const { error: uploadError } = await supabase.storage
+            .from('product-photos')
+            .upload(path, image, { contentType: 'image/webp', cacheControl: '3600' });
+        if (uploadError) throw uploadError;
+        const { data: publicUrl } = supabase.storage.from('product-photos').getPublicUrl(path);
+
+        const { count } = await supabase.from('product_colors')
+            .select('id', { count: 'exact', head: true }).eq('product_id', req.params.id);
+        const { data, error } = await supabase.from('product_colors')
+            .insert({ product_id: req.params.id, color_name: colorName, image_url: publicUrl.publicUrl, sort_order: count || 0 })
+            .select().single();
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (err) {
+        console.error('Add colour error:', err);
+        res.status(500).json({ error: 'Failed to add colour' });
+    }
+});
+
+// Remove one colour and its photo
+app.delete('/api/website/colors/:id', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const { data: color, error } = await supabase.from('product_colors')
+            .delete().eq('id', req.params.id).select().single();
+        if (error) throw error;
+        const marker = '/product-photos/';
+        const at = color.image_url?.indexOf(marker) ?? -1;
+        if (at >= 0) {
+            await supabase.storage.from('product-photos').remove([color.image_url.slice(at + marker.length)]);
+        }
+        res.json({ message: 'Colour removed' });
+    } catch (err) {
+        console.error('Remove colour error:', err);
+        res.status(500).json({ error: 'Failed to remove colour' });
+    }
+});
+
 // Health check
 app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });

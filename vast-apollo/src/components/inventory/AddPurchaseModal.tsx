@@ -4,7 +4,6 @@ import { vendorBillsApi, productsApi, type Product, type BillExtractedData } fro
 import { v4 as uuidv4 } from 'uuid'
 import { BillImageUpload } from './BillImageUpload'
 import { PhotoPicker } from './PhotoPicker'
-import { SAREE_CATEGORIES } from '../../lib/categories'
 import { printThermalLabels } from './ThermalLabel'
 
 interface AddPurchaseModalProps {
@@ -76,7 +75,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const gstAmount = isLocalTransaction ? cgstAmount + sgstAmount : igstAmount
     const totalAmount = round2(taxableValue + gstAmount)
     const photoCount = itemPhotos.filter(Boolean).length
-    const missingCategoryCount = items.filter((item) => !item.saree_type).length
 
     const generateSKU = () => {
         const shortUuid = uuidv4().split('-')[0].toUpperCase()
@@ -189,19 +187,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
 
-        // Checked here rather than with the `required` attribute: the item rows sit in a
-        // scrolling box, and the browser cannot show its validation bubble on a dropdown
-        // that is scrolled out of sight — the save button just appears to do nothing.
-        const missingCategory = items
-            .map((item, index) => (item.saree_type ? 0 : index + 1))
-            .filter(Boolean)
-        if (missingCategory.length > 0) {
-            alert(
-                `Choose a Website Category for item ${missingCategory.map((n) => `#${n}`).join(', ')}.\n\n` +
-                `Scroll up through the product list to find it.`
-            )
-            return
-        }
 
         setIsSubmitting(true)
 
@@ -612,24 +597,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                         value={item.hsn_code || ''}
                                         onChange={(e) => handleItemChange(index, 'hsn_code', e.target.value)}
                                     />
-                                    {/* Decides where this saree sits on the website */}
-                                    <div className="w-full">
-                                        <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
-                                            Website Category
-                                        </label>
-                                        <select
-                                            value={item.saree_type || ''}
-                                            onChange={(e) => handleItemChange(index, 'saree_type', e.target.value)}
-                                            className={`w-full px-4 py-3 text-base bg-[var(--color-surface)] border rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20 ${
-                                                item.saree_type ? 'border-[var(--color-border)]' : 'border-amber-500'
-                                            }`}
-                                        >
-                                            <option value="">Select…</option>
-                                            {SAREE_CATEGORIES.map((c) => (
-                                                <option key={c.id} value={c.id}>{c.label}</option>
-                                            ))}
-                                        </select>
-                                    </div>
                                     <div className="flex items-end">
                                         {items.length > 1 && (
                                             <Button type="button" variant="secondary" onClick={() => removeItem(index)} className="!text-[var(--color-danger-text)] !bg-red-500/10 w-full">
@@ -640,7 +607,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                                 </div>
 
                                 {/* Uploaded against this saree once the bill is saved */}
-                                <div className="mt-3 pt-3 border-t border-[var(--color-border)] lg:col-span-4 lg:mt-0 lg:pt-0 lg:border-t-0">
+                                <div className="mt-3 pt-3 border-t border-[var(--color-border)] lg:col-span-5 lg:mt-0 lg:pt-0 lg:border-t-0">
                                     <PhotoPicker
                                         file={itemPhotos[index] || null}
                                         onChange={(file) => setItemPhoto(index, file)}
@@ -702,15 +669,6 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             </div>
                         </div>
                     </div>
-
-                    {/* Says why the save is blocked, instead of the button looking dead */}
-                    {missingCategoryCount > 0 && (
-                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm text-[var(--color-text)]">
-                            {missingCategoryCount} product{missingCategoryCount > 1 ? 's' : ''} still need
-                            {missingCategoryCount > 1 ? '' : 's'} a <strong>Website Category</strong>. Pick one on any
-                            row and the rest fill in automatically.
-                        </div>
-                    )}
 
                     {/* Action Buttons */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">
