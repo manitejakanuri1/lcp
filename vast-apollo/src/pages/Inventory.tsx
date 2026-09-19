@@ -315,15 +315,18 @@ export function Inventory() {
                 )}
 
                 {/* Add Product Modal */}
-                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="wide">
+                <Modal isOpen={isModalOpen} onClose={() => { setIsModalOpen(false); setNewProductPhoto(null) }} title="Add New Product" size="full">
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                            <Input
-                                label="Company Name"
-                                value={formData.vendor_name}
-                                onChange={(e) => setFormData({ ...formData, vendor_name: e.target.value })}
-                                required
-                            />
+                        {/* Laptops: Company (2) | HSN | Date, Cost | Cost Code | Name (2), Material | Qty | Category (2) */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                            <div className="lg:col-span-2">
+                                <Input
+                                    label="Company Name"
+                                    value={formData.vendor_name}
+                                    onChange={(e) => setFormData({ ...formData, vendor_name: e.target.value })}
+                                    required
+                                />
+                            </div>
                             <Input
                                 label="HSN Code"
                                 placeholder="e.g., 5007"
@@ -340,7 +343,7 @@ export function Inventory() {
                                         placeholder="30-01-2026"
                                         value={formData.purchase_date}
                                         onChange={(e) => setFormData({ ...formData, purchase_date: e.target.value })}
-                                        className="flex-1 px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
+                                        className="flex-1 min-w-0 px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                                         required
                                     />
                                     <input
@@ -379,13 +382,15 @@ export function Inventory() {
                                 value={formData.cost_code}
                                 onChange={(e) => setFormData({ ...formData, cost_code: e.target.value.toUpperCase() })}
                             />
-                            <Input
-                                label="Saree Name"
-                                placeholder="e.g., Kanchipuram Silk"
-                                value={formData.saree_name}
-                                onChange={(e) => setFormData({ ...formData, saree_name: e.target.value })}
-                                required
-                            />
+                            <div className="lg:col-span-2">
+                                <Input
+                                    label="Saree Name"
+                                    placeholder="e.g., Kanchipuram Silk"
+                                    value={formData.saree_name}
+                                    onChange={(e) => setFormData({ ...formData, saree_name: e.target.value })}
+                                    required
+                                />
+                            </div>
                             <Input
                                 label="Material (optional)"
                                 placeholder="e.g., Silk, Cotton"
@@ -403,7 +408,7 @@ export function Inventory() {
 
                             {/* Decides where the saree sits on the website. Without it the
                                 site guesses from the name, and never picks Langavoni. */}
-                            <div className="w-full">
+                            <div className="w-full lg:col-span-2">
                                 <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
                                     Website Category
                                 </label>
@@ -422,8 +427,9 @@ export function Inventory() {
                             </div>
                         </div>
 
+                        <div className="lg:grid lg:grid-cols-2 lg:gap-4 lg:items-start space-y-4 lg:space-y-0">
                         {/* Selling Prices Section */}
-                        <div className="mt-4 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
+                        <div className="mt-4 lg:mt-0 p-4 bg-green-500/5 border border-green-500/20 rounded-xl">
                             <h4 className="text-sm font-semibold text-[var(--color-success-text)] mb-3">Selling Prices</h4>
                             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                                 <Input
@@ -479,8 +485,9 @@ export function Inventory() {
                             onChange={setNewProductPhoto}
                             disabled={isSubmitting}
                         />
+                        </div>
 
-                        <div className="flex gap-3 pt-4">
+                        <div className="flex gap-3 pt-4 lg:justify-end">
                             <Button type="button" variant="secondary" onClick={() => { setIsModalOpen(false); setNewProductPhoto(null) }}>
                                 Cancel
                             </Button>
