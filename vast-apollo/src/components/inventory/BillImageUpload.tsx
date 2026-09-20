@@ -167,6 +167,11 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                             <p className="text-xs text-[var(--color-text-muted)]">
                                 Drag & drop or click to browse (Max 10MB)
                             </p>
+                            {/* These four things decide how many saree rows the reader gets */}
+                            <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                                Best results: bill flat · bright light, no shadow · camera straight above ·
+                                nothing written over the Qty / Rate columns
+                            </p>
                         </div>
                     )}
                 </div>
