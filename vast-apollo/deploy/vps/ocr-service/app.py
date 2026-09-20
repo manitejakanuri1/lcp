@@ -1,5 +1,8 @@
+import base64
 import io
+import json
 import os
+import urllib.request
 import re
 import tempfile
 import subprocess
@@ -756,6 +759,140 @@ def parse_invoice(text):
     }
 
 
+
+# ============================================================
+# AI READER (DeepSeek vision)
+# Tesseract loses table columns on a tilted or shadowed photo. The vision model
+# reads the bill as a human would. Tesseract stays as the fallback, so a missing
+# key, no credit or an API outage still gives the old behaviour.
+# ============================================================
+
+AI_URL = os.getenv("AI_URL", "https://api.deepseek.com/chat/completions")
+AI_MODEL = os.getenv("AI_MODEL", "deepseek-flash")
+OWN_GSTIN_NOTE = os.getenv("OWN_GSTIN", "37ATTPK6588R1Z6")
+
+AI_PROMPT = (
+    "Read this Indian textile purchase invoice. Return ONLY JSON: "
+    '{"company_name":str,"vendor_gst_number":str|null,"bill_number":str|null,'
+    '"bill_date":"YYYY-MM-DD"|null,"is_local_transaction":bool,"discount_amount":num,'
+    '"packing_charges":num,"taxable_value":num,"cgst_amount":num,"sgst_amount":num,'
+    '"igst_amount":num,"total_amount":num,"items":[{"saree_name":str,"hsn_code":str,'
+    '"quantity":int,"cost_price":num,"line_amount":num}]}. '
+    "quantity = pieces (Qty/Pcs/Nos), cost_price = rate per piece, line_amount = row amount. "
+    "is_local_transaction = true when CGST+SGST are charged, false for IGST. "
+    f"Seller GST only, never the buyer {OWN_GSTIN_NOTE}. Use 0 or null when a value is absent. "
+    "No markdown, no explanation."
+)
+
+
+def _ai_key():
+    for path in ("/run/secrets/deepseek_key", os.path.expanduser("~/.deepseek_key")):
+        try:
+            key = open(path).read().strip()
+            if key:
+                return key
+        except OSError:
+            pass
+    return os.getenv("DEEPSEEK_API_KEY") or None
+
+
+def ai_invoice(data: bytes, mime: str):
+    """Invoice read by the vision model, or None when it is unavailable."""
+    key = _ai_key()
+
+    if not key:
+        return None
+
+    body = {
+        "model": AI_MODEL,
+        "temperature": 0,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": AI_PROMPT},
+                {"type": "image_url", "image_url": {
+                    "url": f"data:{mime};base64,{base64.b64encode(data).decode()}"
+                }},
+            ],
+        }],
+    }
+
+    request = urllib.request.Request(
+        AI_URL,
+        data=json.dumps(body).encode(),
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+
+    with urllib.request.urlopen(request, timeout=180) as response:
+        reply = json.load(response)
+
+    content = reply["choices"][0]["message"]["content"].strip()
+    content = re.sub(r"^```(?:json)?|```$", "", content).strip()
+    raw = json.loads(content)
+
+    items = []
+
+    for item in raw.get("items") or []:
+        quantity = int(money(item.get("quantity")) or 0)
+        rate = money(item.get("cost_price")) or 0
+        amount = money(item.get("line_amount")) or round(quantity * rate, 2)
+
+        if quantity <= 0 or rate <= 0:
+            continue
+
+        items.append({
+            "saree_name": (item.get("saree_name") or "").strip()[:150] or None,
+            "material": None,
+            "quantity": quantity,
+            "cost_price": round(rate, 2),
+            "hsn_code": str(item.get("hsn_code") or "").strip(),
+            "line_amount": round(amount, 2),
+        })
+
+    if not items:
+        return None
+
+    local = bool(raw.get("is_local_transaction", True))
+    subtotal = round(sum(i["line_amount"] for i in items), 2)
+    discount = money(raw.get("discount_amount")) or 0
+    packing = money(raw.get("packing_charges")) or 0
+    taxable = money(raw.get("taxable_value")) or round(subtotal - discount + packing, 2)
+    cgst = money(raw.get("cgst_amount")) or 0
+    sgst = money(raw.get("sgst_amount")) or 0
+    igst = money(raw.get("igst_amount")) or 0
+
+    if local and not (cgst or sgst):
+        cgst = sgst = round(taxable * 2.5 / 100, 2)
+    if not local and not igst:
+        igst = round(taxable * 5 / 100, 2)
+
+    gst = round(cgst + sgst + igst, 2)
+    gstin = fix_gstin(str(raw.get("vendor_gst_number") or "").strip())
+
+    return {
+        "company_name": (raw.get("company_name") or "").strip() or None,
+        "vendor_gst_number": gstin if gstin != OWN_GSTIN else None,
+        "bill_number": (str(raw.get("bill_number")).strip() if raw.get("bill_number") else None),
+        "bill_date": parse_date_value(str(raw.get("bill_date") or "")) or raw.get("bill_date"),
+        "is_local_transaction": local,
+        "subtotal": subtotal,
+        "discount_amount": round(discount, 2),
+        "packing_charges": round(packing, 2),
+        "taxable_value": round(taxable, 2),
+        "cgst_rate": 2.5 if local else 0,
+        "sgst_rate": 2.5 if local else 0,
+        "igst_rate": 0 if local else 5.0,
+        "cgst_amount": round(cgst, 2),
+        "sgst_amount": round(sgst, 2),
+        "igst_amount": round(igst, 2),
+        "gst_amount": gst,
+        "total_amount": money(raw.get("total_amount")) or round(taxable + gst, 2),
+        "items": items,
+        "ocr_warnings": [],
+        "raw_text": "",
+        "read_by": "ai",
+    }
+
 # ============================================================
 # IMAGE OPTIMIZATION
 # ============================================================
@@ -874,6 +1011,14 @@ async def ocr_bill(
     ).lower()
 
     try:
+        if content_type.startswith("image/"):
+            try:
+                by_ai = ai_invoice(data, content_type)
+                if by_ai:
+                    return {"success": True, "extracted_data": by_ai}
+            except Exception as exc:
+                print("AI reader unavailable, using Tesseract:", str(exc)[:200])
+
         if (
             content_type ==
             "application/pdf"
@@ -911,6 +1056,7 @@ async def ocr_bill(
         extracted = parse_invoice(
             text
         )
+        extracted["read_by"] = "tesseract"
 
         return {
             "success": True,
