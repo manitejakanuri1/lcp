@@ -1403,7 +1403,7 @@ app.get('/api/website/products', authenticateToken, requireStaff, async (req, re
         const live = req.query.status === 'live';
         const { data, error } = await supabase
             .from('products')
-            .select('id, sku, saree_name, saree_type, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, sort_order, created_at)')
+            .select('id, sku, saree_name, saree_type, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, pieces, sort_order, created_at)')
             .eq('on_website', live)
             .eq('status', 'available')
             .order('created_at', { ascending: false });
@@ -1457,10 +1457,11 @@ app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, si
         if (uploadError) throw uploadError;
         const { data: publicUrl } = supabase.storage.from('product-photos').getPublicUrl(path);
 
+        const pieces = Math.max(0, parseInt(req.body.pieces) || 0);
         const { count } = await supabase.from('product_colors')
             .select('id', { count: 'exact', head: true }).eq('product_id', req.params.id);
         const { data, error } = await supabase.from('product_colors')
-            .insert({ product_id: req.params.id, color_name: colorName, image_url: publicUrl.publicUrl, sort_order: count || 0 })
+            .insert({ product_id: req.params.id, color_name: colorName, image_url: publicUrl.publicUrl, pieces, sort_order: count || 0 })
             .select().single();
         if (error) throw error;
         res.status(201).json(data);

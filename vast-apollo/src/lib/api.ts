@@ -585,6 +585,7 @@ export const healthCheck = async () => {
 export interface ProductColor {
     id: string;
     color_name: string;
+    pieces: number;
     image_url: string | null;
     sort_order: number;
 }
@@ -614,9 +615,10 @@ export const websiteApi = {
             body: JSON.stringify(changes),
         }),
 
-    addColor: async (productId: string, colorName: string, file: File) => {
+    addColor: async (productId: string, colorName: string, pieces: number, file: File) => {
         const formData = new FormData();
         formData.append('color_name', colorName);
+        formData.append('pieces', String(pieces));
         formData.append('photo', file);
         const token = await getAuthToken();
         const response = await fetch(`${API_BASE}/website/products/${productId}/colors`, {

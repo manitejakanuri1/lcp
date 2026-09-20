@@ -131,6 +131,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
 }) {
     const { addToast } = useToast()
     const [colorName, setColorName] = useState('')
+    const [colorPieces, setColorPieces] = useState('')
     const [colorFile, setColorFile] = useState<File | null>(null)
     const [busy, setBusy] = useState(false)
     const colorInput = useRef<HTMLInputElement>(null)
@@ -158,9 +159,10 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
             addToast('error', 'Choose a colour and a photo')
             return
         }
-        const color = await websiteApi.addColor(product.id, colorName, colorFile)
+        const color = await websiteApi.addColor(product.id, colorName, parseInt(colorPieces) || 0, colorFile)
         onChange({ ...product, product_colors: [...product.product_colors, color] })
         setColorName('')
+        setColorPieces('')
         setColorFile(null)
         if (colorInput.current) colorInput.current.value = ''
     }, 'Could not add colour')
@@ -218,6 +220,12 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     <div>
                         <h3 className="text-sm font-semibold text-[var(--color-text)] mb-3">
                             Colours ({product.product_colors.length})
+                            {product.product_colors.some((c) => c.pieces > 0) && (
+                                <span className="font-normal text-[var(--color-text-muted)]">
+                                    {' '}· {product.product_colors.reduce((sum, c) => sum + (c.pieces || 0), 0)} pcs listed
+                                    {' '}of {product.quantity} in stock
+                                </span>
+                            )}
                         </h3>
                         {product.product_colors.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
@@ -227,7 +235,9 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                             {c.image_url && <img src={c.image_url} alt={c.color_name} className="w-full h-full object-cover" />}
                                         </div>
                                         <div className="flex items-center justify-between px-3 py-2">
-                                            <span className="text-sm font-medium text-[var(--color-text)] truncate">{c.color_name}</span>
+                                            <span className="text-sm font-medium text-[var(--color-text)] truncate">
+                                                {c.color_name}{c.pieces ? ` · ${c.pieces} pcs` : ''}
+                                            </span>
                                             <button type="button" title="Remove colour" disabled={busy}
                                                 onClick={() => removeColor(c.id)}
                                                 className="p-1 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded">
@@ -240,7 +250,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                         )}
 
                         {/* Add a colour */}
-                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-3 items-end p-4 border border-dashed border-[var(--color-border)] rounded-xl">
+                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end p-4 border border-dashed border-[var(--color-border)] rounded-xl">
                             <Input
                                 label="Colour"
                                 list="color-suggestions"
@@ -251,6 +261,15 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                             <datalist id="color-suggestions">
                                 {COLOR_SUGGESTIONS.map((c) => <option key={c} value={c} />)}
                             </datalist>
+                            <Input
+                                label="Pieces"
+                                type="number"
+                                min="0"
+                                className="sm:w-24"
+                                placeholder="0"
+                                value={colorPieces}
+                                onChange={(e) => setColorPieces(e.target.value)}
+                            />
                             <div>
                                 <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">Photo of this colour</label>
                                 <input ref={colorInput} type="file" accept="image/jpeg,image/png,image/webp"
