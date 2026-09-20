@@ -50,6 +50,8 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
     const [billImagePath, setBillImagePath] = useState<string | null>(null)
 
     // Bill-level discount and packing, as printed on the vendor's invoice
+    // How many sarees the bill reader found, so staff can check nothing was missed
+    const [readCount, setReadCount] = useState<number | null>(null)
     const [billDiscount, setBillDiscount] = useState('')
     const [packingCharges, setPackingCharges] = useState('')
 
@@ -155,6 +157,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         setBillDiscount(extractedData.charges?.discount_amount ? String(extractedData.charges.discount_amount) : '')
         setPackingCharges(extractedData.charges?.packing_charges ? String(extractedData.charges.packing_charges) : '')
 
+        setReadCount(extractedData.items.length)
         // Populate items
         if (extractedData.items.length > 0) {
             setItems(extractedData.items.map(item => ({
@@ -286,6 +289,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
         setBillImagePath(null)
         setBillDiscount('')
         setPackingCharges('')
+        setReadCount(null)
         onClose()
     }
 
@@ -502,7 +506,7 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                         </Button>
                     </div>
 
-                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2 lg:max-h-none lg:overflow-visible lg:pr-0">
+                    <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-2">
                         {items.map((item, index) => (
                             <div key={index} className="bg-[var(--color-surface-elevated)] p-4 rounded-xl border border-[var(--color-border)] relative lg:grid lg:grid-cols-8 lg:gap-3 lg:items-end">
                                 <span className="absolute top-2 right-2 text-xs font-mono text-[var(--color-text-muted)]">#{index + 1}</span>
@@ -669,6 +673,14 @@ export function AddPurchaseModal({ isOpen, onClose, onSuccess }: AddPurchaseModa
                             </div>
                         </div>
                     </div>
+
+                    {/* A photographed bill loses rows when it is tilted or shadowed */}
+                    {readCount !== null && (
+                        <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-sm text-[var(--color-text)]">
+                            Read <strong>{readCount}</strong> saree{readCount === 1 ? '' : 's'} from this bill.
+                            Check the paper bill — if any are missing, press <strong>+ Add Item</strong> and type them.
+                        </div>
+                    )}
 
                     {/* Action Buttons */}
                     <div className="flex justify-end gap-3 pt-4 border-t border-[var(--color-border)]">

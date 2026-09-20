@@ -1274,8 +1274,11 @@ def find_items(lines):
         # line amount; a product row has a whole-number quantity and a rate
         # with quantity × rate ≈ amount, with or without a "NOS"/"PCS" unit
         # ("40 NO'S 650.00 26,000.00" and "24 6.30 151.20 380.00 P 9120.00").
+        # A photographed bill often loses the decimal point: "421 00" is 421.00 and
+        # "18120," is 18120. Join a bare 2-digit group back onto the number before it.
+        tail = re.sub(r"(\d)\s+(\d{2})(?!\s*[.,]?\d)", r".", tail)
         numbers = [
-            m.group(0)
+            m.group(0).rstrip(",.")
             for m in re.finditer(r"\d[\d,]*(?:\.\d+)?(?!\s*%)", tail)
         ]
 
@@ -1284,20 +1287,17 @@ def find_items(lines):
 
         # Rate and amount are printed in rupees and paise ("650.00"), which
         # keeps stray numbers (phone, email, UDYAM ids) out of the items.
-        paise = re.compile(r"\d[\d,]*\.\d{2}$")
-
-        if not paise.match(numbers[-1]):
-            continue
-
+        # No paise requirement: OCR drops decimals. The qty x rate = amount check
+        # below is what keeps phone numbers and ids out of the item list.
         amount = money(numbers[-1]) or 0
+        if amount < 50:
+            continue
         found = None
 
         for qi, q in enumerate(numbers[:-2]):
             if "." in q or "," in q or len(q) > 4 or int(q) <= 0:
                 continue
             for r in numbers[qi + 1:-1]:
-                if not paise.match(r):
-                    continue
                 rate_value = money(r) or 0
                 if rate_value > 0 and abs(int(q) * rate_value - amount) <= max(5, amount * 0.02):
                     found = (int(q), rate_value)
@@ -1612,6 +1612,18 @@ def parse_invoice(text):
         total_amount = max(
             total_candidates
         )
+
+    # A smudged totals box reads as nonsense ("3932765.40" on a 39,308 bill). Trust the
+    # rows instead when the printed total is nowhere near items - discount + packing.
+    if subtotal > 0:
+        sane = subtotal - discount_amount + packing_charges
+        if total_amount > sane * 3 or (taxable_value > sane * 3):
+            taxable_value = round(sane, 2)
+            gst_amount = round(taxable_value * (cgst_rate + sgst_rate + igst_rate) / 100, 2)
+            cgst_amount = round(taxable_value * cgst_rate / 100, 2)
+            sgst_amount = round(taxable_value * sgst_rate / 100, 2)
+            igst_amount = round(taxable_value * igst_rate / 100, 2)
+            total_amount = round(taxable_value + gst_amount, 2)
 
     is_local_transaction = None
 
