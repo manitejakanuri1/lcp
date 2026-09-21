@@ -1403,7 +1403,7 @@ app.get('/api/website/products', authenticateToken, requireStaff, async (req, re
         const live = req.query.status === 'live';
         const { data, error } = await supabase
             .from('products')
-            .select('id, sku, saree_name, saree_type, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, pieces, sort_order, created_at)')
+            .select('id, sku, saree_name, saree_type, color, main_color_pieces, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, pieces, sort_order, created_at)')
             .eq('on_website', live)
             .eq('status', 'available')
             .order('created_at', { ascending: false });
@@ -1424,9 +1424,11 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
         const changes = {};
         if (req.body.saree_type !== undefined) changes.saree_type = req.body.saree_type || null;
         if (req.body.on_website !== undefined) changes.on_website = !!req.body.on_website;
+        if (req.body.color !== undefined) changes.color = String(req.body.color || '').trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || null;
+        if (req.body.main_color_pieces !== undefined) changes.main_color_pieces = Math.max(0, parseInt(req.body.main_color_pieces) || 0);
         const { data, error } = await supabase
             .from('products').update(changes).eq('id', req.params.id)
-            .select('id, saree_type, on_website').single();
+            .select('id, saree_type, on_website, color, main_color_pieces').single();
         if (error) throw error;
         res.json(data);
     } catch (err) {

@@ -136,6 +136,16 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     const [busy, setBusy] = useState(false)
     const colorInput = useRef<HTMLInputElement>(null)
     const mainInput = useRef<HTMLInputElement>(null)
+    // Gallery: index 0 = main photo, then each colour. A new colour jumps into view.
+    const [shown, setShown] = useState(0)
+    const [mainColor, setMainColor] = useState(product.color || '')
+    const [mainPieces, setMainPieces] = useState(product.main_color_pieces ? String(product.main_color_pieces) : '')
+    const gallery = [
+        { key: 'main', url: product.image_url, name: product.color || 'Main photo', pieces: product.main_color_pieces || 0 },
+        ...product.product_colors.map((c) => ({ key: c.id, url: c.image_url, name: c.color_name, pieces: c.pieces || 0 })),
+    ]
+    const current = gallery[Math.min(shown, gallery.length - 1)]
+    const totalListed = gallery.reduce((sum, g) => sum + g.pieces, 0)
 
     const run = async (work: () => Promise<void>, failure: string) => {
         setBusy(true)
@@ -161,6 +171,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         }
         const color = await websiteApi.addColor(product.id, colorName, parseInt(colorPieces) || 0, colorFile)
         onChange({ ...product, product_colors: [...product.product_colors, color] })
+        setShown(product.product_colors.length + 1)
         setColorName('')
         setColorPieces('')
         setColorFile(null)
@@ -170,7 +181,14 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     const removeColor = (id: string) => run(async () => {
         await websiteApi.removeColor(id)
         onChange({ ...product, product_colors: product.product_colors.filter((c) => c.id !== id) })
+        setShown(0)
     }, 'Could not remove colour')
+
+    const saveMainColor = () => run(async () => {
+        const saved = await websiteApi.update(product.id, { color: mainColor, main_color_pieces: parseInt(mainPieces) || 0 })
+        onChange({ ...product, color: saved.color, main_color_pieces: saved.main_color_pieces })
+        setMainColor(saved.color || '')
+    }, 'Could not save main colour')
 
     const toggleWebsite = () => run(async () => {
         const on = !product.on_website
@@ -188,16 +206,40 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
             <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
                 {/* Main photo, from Stock In */}
                 <div className="space-y-3">
-                    <div className="aspect-[3/4] bg-[var(--color-surface)] rounded-xl overflow-hidden flex items-center justify-center border border-[var(--color-border)]">
-                        {product.image_url
-                            ? <img src={product.image_url} alt="Main" className="w-full h-full object-cover" />
-                            : <span className="text-sm text-[var(--color-text-muted)]">No main photo yet</span>}
+                    {/* Gallery: big photo + thumbnails (beside on laptop, below on phone) */}
+                    <div className="flex flex-col lg:flex-row gap-2">
+                        <div className="flex-1 aspect-[3/4] bg-[var(--color-surface)] rounded-xl overflow-hidden flex items-center justify-center border border-[var(--color-border)]">
+                            {current.url
+                                ? <img src={current.url} alt={current.name} className="w-full h-full object-cover" />
+                                : <span className="text-sm text-[var(--color-text-muted)]">No main photo yet</span>}
+                        </div>
+                        {gallery.length > 1 && (
+                            <div className="flex lg:flex-col gap-2 overflow-auto lg:max-h-[426px]">
+                                {gallery.map((g, i) => (
+                                    <button key={g.key} type="button" title={g.name} onClick={() => setShown(i)}
+                                        className={`shrink-0 w-14 h-[74px] rounded-lg overflow-hidden border-2 ${i === shown ? 'border-[var(--color-primary)]' : 'border-transparent opacity-70'}`}>
+                                        {g.url && <img src={g.url} alt={g.name} className="w-full h-full object-cover" />}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
                     </div>
+                    <p className="text-sm font-medium text-[var(--color-text)]">
+                        {current.name}{current.pieces ? ` · ${current.pieces} pcs` : ''}
+                    </p>
                     <input ref={mainInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                         onChange={(e) => e.target.files?.[0] && changeMainPhoto(e.target.files[0])} />
                     <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={() => mainInput.current?.click()}>
                         {product.image_url ? 'Change main photo' : 'Add main photo'}
                     </Button>
+                    {/* Colour of the main photo itself */}
+                    <div className="grid grid-cols-[1fr_5rem_auto] gap-2 items-end">
+                        <Input label="Main photo colour" list="color-suggestions" placeholder="e.g. Teal"
+                            value={mainColor} onChange={(e) => setMainColor(e.target.value)} />
+                        <Input label="Pieces" type="number" min="0" placeholder="0"
+                            value={mainPieces} onChange={(e) => setMainPieces(e.target.value)} />
+                        <Button type="button" variant="secondary" disabled={busy} onClick={saveMainColor}>Save</Button>
+                    </div>
                     <p className="text-xs text-[var(--color-text-muted)] font-mono">{product.sku} · {product.quantity} in stock · ₹{product.selling_price_b || product.selling_price_a}</p>
                 </div>
 
@@ -220,10 +262,9 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     <div>
                         <h3 className="text-sm font-semibold text-[var(--color-text)] mb-3">
                             Colours ({product.product_colors.length})
-                            {product.product_colors.some((c) => c.pieces > 0) && (
+                            {totalListed > 0 && (
                                 <span className="font-normal text-[var(--color-text-muted)]">
-                                    {' '}· {product.product_colors.reduce((sum, c) => sum + (c.pieces || 0), 0)} pcs listed
-                                    {' '}of {product.quantity} in stock
+                                    {' '}· {gallery.filter((g) => g.pieces).map((g) => `${g.name} ${g.pieces}`).join(' + ')} = {totalListed} of {product.quantity} in stock
                                 </span>
                             )}
                         </h3>

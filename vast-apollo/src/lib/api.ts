@@ -595,6 +595,8 @@ export interface WebsiteProduct {
     sku: string;
     saree_name: string | null;
     saree_type: string | null;
+    color: string | null;
+    main_color_pieces: number;
     material: string | null;
     selling_price_a: number;
     selling_price_b: number;
@@ -609,8 +611,8 @@ export const websiteApi = {
     getProducts: async (status: 'todo' | 'live') =>
         request<WebsiteProduct[]>(`/website/products?status=${status}`),
 
-    update: async (id: string, changes: { saree_type?: string; on_website?: boolean }) =>
-        request<{ id: string; saree_type: string | null; on_website: boolean }>(`/website/products/${id}`, {
+    update: async (id: string, changes: { saree_type?: string; on_website?: boolean; color?: string; main_color_pieces?: number }) =>
+        request<{ id: string; saree_type: string | null; on_website: boolean; color: string | null; main_color_pieces: number }>(`/website/products/${id}`, {
             method: 'PUT',
             body: JSON.stringify(changes),
         }),
