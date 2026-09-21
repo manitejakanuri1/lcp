@@ -133,6 +133,13 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     const [colorName, setColorName] = useState('')
     const [colorPieces, setColorPieces] = useState('')
     const [colorFile, setColorFile] = useState<File | null>(null)
+    const [colorPreview, setColorPreview] = useState<string | null>(null)
+    useEffect(() => {
+        if (!colorFile) { setColorPreview(null); return }
+        const url = URL.createObjectURL(colorFile)
+        setColorPreview(url)
+        return () => URL.revokeObjectURL(url)
+    }, [colorFile])
     const [busy, setBusy] = useState(false)
     const colorInput = useRef<HTMLInputElement>(null)
     const mainInput = useRef<HTMLInputElement>(null)
@@ -313,9 +320,24 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                             />
                             <div>
                                 <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">Photo of this colour</label>
-                                <input ref={colorInput} type="file" accept="image/jpeg,image/png,image/webp"
-                                    onChange={(e) => setColorFile(e.target.files?.[0] || null)}
-                                    className="w-full text-sm text-[var(--color-text)] file:mr-3 file:px-3 file:py-2 file:rounded-lg file:border-0 file:bg-[var(--color-surface)] file:text-[var(--color-text)]" />
+                                <input ref={colorInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                    onChange={(e) => setColorFile(e.target.files?.[0] || null)} />
+                                {/* Show the picked photo itself, not its file name */}
+                                {colorPreview ? (
+                                    <div className="relative w-24 h-32 rounded-lg overflow-hidden border border-[var(--color-border)]">
+                                        <img src={colorPreview} alt="Chosen colour" className="w-full h-full object-cover cursor-pointer"
+                                            onClick={() => colorInput.current?.click()} />
+                                        <button type="button" title="Remove photo"
+                                            onClick={() => { setColorFile(null); if (colorInput.current) colorInput.current.value = '' }}
+                                            className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/60 text-white text-xs">✕</button>
+                                    </div>
+                                ) : (
+                                    <button type="button" onClick={() => colorInput.current?.click()}
+                                        className="w-24 h-32 rounded-lg border-2 border-dashed border-[var(--color-border)] flex flex-col items-center justify-center gap-1 text-xs text-[var(--color-text-muted)] hover:border-[var(--color-primary)]">
+                                        <ImagePlus className="w-6 h-6" />
+                                        Choose photo
+                                    </button>
+                                )}
                             </div>
                             <Button type="button" variant="primary" disabled={busy} onClick={addColor}>
                                 + Add colour
