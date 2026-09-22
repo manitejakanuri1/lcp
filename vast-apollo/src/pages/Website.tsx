@@ -278,13 +278,17 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 </span>
                             )}
                         </h3>
-                        {product.product_colors.some((c) => c.sku) && (
+                        {(product.product_colors.some((c) => c.sku) || product.main_color_pieces > 0) && (
                             <Button type="button" variant="secondary" onClick={() => printThermalLabels(
-                                product.product_colors.filter((c) => c.sku).flatMap((c) => Array.from(
-                                    { length: Math.max(1, c.pieces || 1) },
+                                // The main photo colour has no colour row: it uses the saree's own barcode.
+                                [
+                                    { sku: product.sku, color_name: product.color || '', pieces: product.main_color_pieces || 0 },
+                                    ...product.product_colors.filter((c) => c.sku).map((c) => ({ sku: c.sku as string, color_name: c.color_name, pieces: c.pieces || 0 })),
+                                ].filter((c) => c.pieces > 0).flatMap((c) => Array.from(
+                                    { length: c.pieces },
                                     () => ({
                                         ...(product as unknown as Product),
-                                        sku: c.sku as string,
+                                        sku: c.sku,
                                         saree_name: `${product.saree_name || ''} ${c.color_name}`.trim(),
                                     })
                                 ))
