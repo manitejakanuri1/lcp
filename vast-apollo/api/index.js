@@ -316,10 +316,32 @@ app.get('/api/products/sku/:sku', authenticateToken, async (req, res) => {
             .from('products')
             .select('*')
             .eq('sku', req.params.sku)
-            .single();
+            .maybeSingle();
 
         if (error) throw error;
-        res.json(forRole(req, data));
+
+        if (data) return res.json(forRole(req, data));
+
+        // Not a saree barcode: try a colour barcode (S-XXXX-MRN). The till then
+        // knows which colour was picked off the shelf, and its own stock.
+        const { data: colour, error: colourError } = await supabase
+            .from('product_colors')
+            .select('id, color_name, pieces, image_url, sku, products(*)')
+            .eq('sku', req.params.sku)
+            .maybeSingle();
+
+        if (colourError) throw colourError;
+        if (!colour?.products) return res.status(404).json({ error: 'Product not found' });
+
+        res.json({
+            ...forRole(req, colour.products),
+            quantity: colour.pieces,
+            image_url: colour.image_url || colour.products.image_url,
+            sku: colour.sku,
+            saree_sku: colour.products.sku,
+            color: colour.color_name,
+            color_id: colour.id,
+        });
     } catch (err) {
         res.status(404).json({ error: 'Product not found' });
     }
@@ -476,6 +498,22 @@ app.post('/api/bills', authenticateToken, async (req, res) => {
         if (costError) throw costError;
         const costOf = Object.fromEntries(costRows.map((p) => [p.id, parseFloat(p.cost_price) || 0]));
         for (const item of items) item.cost_price = costOf[item.product_id] ?? 0;
+
+        // Colour stock: a line scanned from a colour barcode comes off that colour.
+        for (const item of items.filter((i) => i.color_id)) {
+            const { data: colour } = await supabase
+                .from('product_colors').select('pieces').eq('id', item.color_id).single();
+            await supabase.from('product_colors')
+                .update({ pieces: Math.max(0, (colour?.pieces || 0) - (item.quantity || 1)) })
+                .eq('id', item.color_id);
+
+            const { data: saree } = await supabase
+                .from('products').select('quantity').eq('id', item.product_id).single();
+            const left = Math.max(0, (saree?.quantity || 0) - (item.quantity || 1));
+            await supabase.from('products')
+                .update({ quantity: left, status: left <= 0 ? 'sold' : 'available' })
+                .eq('id', item.product_id);
+        }
         bill.total_cost = items.reduce((sum, item) => sum + item.cost_price * (item.quantity || 1), 0);
 
         // Create bill
@@ -1403,7 +1441,7 @@ app.get('/api/website/products', authenticateToken, requireStaff, async (req, re
         const live = req.query.status === 'live';
         const { data, error } = await supabase
             .from('products')
-            .select('id, sku, saree_name, saree_type, color, main_color_pieces, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, image_url, pieces, sort_order, created_at)')
+            .select('id, sku, saree_name, saree_type, color, main_color_pieces, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, sku, image_url, pieces, sort_order, created_at)')
             .eq('on_website', live)
             .eq('status', 'available')
             .order('created_at', { ascending: false });
@@ -1460,10 +1498,21 @@ app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, si
         const { data: publicUrl } = supabase.storage.from('product-photos').getPublicUrl(path);
 
         const pieces = Math.max(0, parseInt(req.body.pieces) || 0);
+        const { data: parent } = await supabase.from('products').select('sku').eq('id', req.params.id).single();
+        // Two colours can share the first three letters (Dark Blue / Dark Green), and
+        // the barcode has to stay unique, so a clash gets a number.
+        const base = `${parent?.sku || 'S'}-${colorName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'CLR'}`;
+        let colourSku = base;
+        for (let n = 2; n < 50; n++) {
+            const { data: clash } = await supabase.from('product_colors')
+                .select('id').eq('sku', colourSku).maybeSingle();
+            if (!clash) break;
+            colourSku = `${base}${n}`;
+        }
         const { count } = await supabase.from('product_colors')
             .select('id', { count: 'exact', head: true }).eq('product_id', req.params.id);
         const { data, error } = await supabase.from('product_colors')
-            .insert({ product_id: req.params.id, color_name: colorName, image_url: publicUrl.publicUrl, pieces, sort_order: count || 0 })
+            .insert({ product_id: req.params.id, color_name: colorName, sku: colourSku, image_url: publicUrl.publicUrl, pieces, sort_order: count || 0 })
             .select().single();
         if (error) throw error;
         res.status(201).json(data);

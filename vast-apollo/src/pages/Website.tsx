@@ -4,7 +4,9 @@ import { Button, Input, Modal } from '../components/ui'
 import { productsApi, websiteApi, type WebsiteProduct } from '../lib/api'
 import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
 import { useToast } from '../contexts/ToastContext'
-import { Globe, ImagePlus, Trash2 } from 'lucide-react'
+import { Globe, ImagePlus, Printer, Trash2 } from 'lucide-react'
+import { printThermalLabels } from '../components/inventory/ThermalLabel'
+import type { Product } from '../lib/api'
 
 // Suggestions only: any colour can be typed, and the server stores it in Title Case
 // so "red" and "RED" land in the same website filter.
@@ -267,7 +269,8 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
 
                     {/* Colours */}
                     <div>
-                        <h3 className="text-sm font-semibold text-[var(--color-text)] mb-3">
+                        <div className="flex items-center justify-between mb-3 gap-3">
+                        <h3 className="text-sm font-semibold text-[var(--color-text)]">
                             Colours ({product.product_colors.length})
                             {totalListed > 0 && (
                                 <span className="font-normal text-[var(--color-text-muted)]">
@@ -275,6 +278,22 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 </span>
                             )}
                         </h3>
+                        {product.product_colors.some((c) => c.sku) && (
+                            <Button type="button" variant="secondary" onClick={() => printThermalLabels(
+                                product.product_colors.filter((c) => c.sku).flatMap((c) => Array.from(
+                                    { length: Math.max(1, c.pieces || 1) },
+                                    () => ({
+                                        ...(product as unknown as Product),
+                                        sku: c.sku as string,
+                                        saree_name: `${product.saree_name || ''} ${c.color_name}`.trim(),
+                                    })
+                                ))
+                            )}>
+                                <Printer className="w-4 h-4 mr-2" />
+                                Print colour labels
+                            </Button>
+                        )}
+                        </div>
                         {product.product_colors.length > 0 && (
                             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-4">
                                 {product.product_colors.map((c) => (
@@ -285,6 +304,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                         <div className="flex items-center justify-between px-3 py-2">
                                             <span className="text-sm font-medium text-[var(--color-text)] truncate">
                                                 {c.color_name}{c.pieces ? ` · ${c.pieces} pcs` : ''}
+                                                {c.sku && <span className="block font-mono text-xs text-[var(--color-text-muted)]">{c.sku}</span>}
                                             </span>
                                             <button type="button" title="Remove colour" disabled={busy}
                                                 onClick={() => removeColor(c.id)}

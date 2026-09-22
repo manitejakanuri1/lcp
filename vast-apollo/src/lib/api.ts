@@ -272,6 +272,7 @@ export const vendorBillsApi = {
 // ================== BILLS API ==================
 
 export interface BillItem {
+    color_id?: string | null;
     product_id: string;
     selling_price: number;
     cost_price: number;
@@ -585,6 +586,7 @@ export const healthCheck = async () => {
 export interface ProductColor {
     id: string;
     color_name: string;
+    sku: string | null;
     pieces: number;
     image_url: string | null;
     sort_order: number;

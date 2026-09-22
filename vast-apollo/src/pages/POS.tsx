@@ -6,7 +6,8 @@ import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import { printThermalReceipt } from '../components/ThermalReceipt'
 
 interface CartItem {
-    product: Product
+    // A colour scan returns the saree with the colour's own barcode, stock and name
+    product: Product & { color_id?: string | null; saree_sku?: string }
     quantity: number
 }
 
@@ -182,6 +183,7 @@ export function POS() {
 
             const billItems = cart.map(item => ({
                 product_id: item.product.id,
+                color_id: item.product.color_id || null,
                 selling_price: getItemPrice(item.product),
                 cost_price: item.product.cost_price || 0,
                 quantity: item.quantity
@@ -189,8 +191,9 @@ export function POS() {
 
             const bill = await billsApi.create(billData, billItems)
 
-            // Update inventory quantities
-            for (const item of cart) {
+            // Update inventory quantities. Colour lines are handled by the server,
+            // which takes the pieces off that colour and off the saree together.
+            for (const item of cart.filter((i) => !i.product.color_id)) {
                 const newQty = (item.product.quantity || 1) - item.quantity
                 await productsApi.update(item.product.id, {
                     quantity: Math.max(0, newQty),
@@ -343,7 +346,9 @@ export function POS() {
                                     <div key={item.product.sku} className="p-4">
                                         <div className="flex items-start justify-between mb-2">
                                             <div>
-                                                <p className="font-mono text-sm text-[var(--color-accent-text)]">{item.product.sku}</p>
+                                                <p className="font-mono text-sm text-[var(--color-accent-text)]">
+                                                    {item.product.sku}{item.product.color ? ` · ${item.product.color}` : ''}
+                                                </p>
                                                 <p className="text-[var(--color-text)]">
                                                     {item.product.saree_name || 'Unnamed'}{item.product.material ? ` • ${item.product.material}` : ''}
                                                 </p>
