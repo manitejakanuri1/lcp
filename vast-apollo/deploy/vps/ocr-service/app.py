@@ -1011,13 +1011,23 @@ async def ocr_bill(
     ).lower()
 
     try:
-        if content_type.startswith("image/"):
-            try:
+        # The vision model takes images, so a PDF bill is rendered first.
+        try:
+            if content_type.startswith("image/"):
                 by_ai = ai_invoice(data, content_type)
-                if by_ai:
-                    return {"success": True, "extracted_data": by_ai}
-            except Exception as exc:
-                print("AI reader unavailable, using Tesseract:", str(exc)[:200])
+            elif content_type == "application/pdf":
+                page = pdf_images(data)[:1]
+                by_ai = ai_invoice(
+                    cv2.imencode(".jpg", page[0], [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes(),
+                    "image/jpeg",
+                ) if page else None
+            else:
+                by_ai = None
+
+            if by_ai:
+                return {"success": True, "extracted_data": by_ai}
+        except Exception as exc:
+            print("AI reader unavailable, using Tesseract:", str(exc)[:200])
 
         if (
             content_type ==
