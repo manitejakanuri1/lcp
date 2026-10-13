@@ -456,16 +456,24 @@ app.delete('/api/products/:id', authenticateToken, requireStaff, async (req, res
 // ================== BILLS ROUTES ==================
 
 // Get all bills
+// What a bill row may carry from a request. Totals and the bill number are worked out
+// here, never taken from the till.
+const BILL_COLUMNS = ['customer_name', 'customer_phone', 'payment_method', 'notes', 'salesman_id'];
+
 app.get('/api/bills', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('bills')
-            .select('*, bill_items(*)')
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.json(data);
+        // One query instead of a bill query plus one per bill: the lines come back nested,
+        // which is the shape the Sales Bills screen already expects.
+        const rows = await many(
+            `select b.*, coalesce(
+                      (select jsonb_agg(to_jsonb(i.*) order by i.created_at) from pos.bill_items i
+                        where i.bill_id = b.id), '[]'::jsonb) as bill_items
+               from pos.bills b
+              order by b.created_at desc`,
+        );
+        res.json(rows);
     } catch (err) {
+        console.error('Failed to fetch bills:', err);
         res.status(500).json({ error: 'Failed to fetch bills' });
     }
 });
@@ -473,10 +481,12 @@ app.get('/api/bills', authenticateToken, requireStaff, async (req, res) => {
 // Generate bill number
 app.get('/api/bills/generate-number', authenticateToken, async (req, res) => {
     try {
-        const { data, error } = await supabase.rpc('generate_bill_number');
-        if (error) throw error;
-        res.json({ billNumber: data });
+        // The counter lives in the database (pos.bill_counters, Asia/Kolkata day), so two
+        // tills cannot hand out the same number.
+        const row = await one('select pos.generate_bill_number() as bill_number');
+        res.json({ billNumber: row.bill_number });
     } catch (err) {
+        console.error('Failed to generate bill number:', err);
         res.status(500).json({ error: 'Failed to generate bill number' });
     }
 });
@@ -484,21 +494,18 @@ app.get('/api/bills/generate-number', authenticateToken, async (req, res) => {
 // Get single bill by ID with product details
 app.get('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data: bill, error: billError } = await supabase
-            .from('bills')
-            .select('*')
-            .eq('id', req.params.id)
-            .single();
+        const bill = await one('select * from pos.bills where id = $1', [req.params.id]);
+        if (!bill) return res.status(404).json({ error: 'Bill not found' });
 
-        if (billError) throw billError;
-
-        const { data: billItems, error: itemsError } = await supabase
-            .from('bill_items')
-            .select('*, products(*)')
-            .eq('bill_id', req.params.id);
-
-        if (itemsError) throw itemsError;
-
+        const billItems = await many(
+            `select i.*, to_jsonb(p.*) as products, c.color_name
+               from pos.bill_items i
+               left join pos.products p on p.id = i.product_id
+               left join pos.product_colors c on c.id = i.color_id
+              where i.bill_id = $1
+              order by i.created_at`,
+            [req.params.id],
+        );
         res.json({ ...bill, bill_items: billItems });
     } catch (err) {
         console.error('Error fetching bill details:', err);
@@ -507,137 +514,161 @@ app.get('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
 });
 
 // Create bill
+//
+// Everything here happens in one transaction: the bill, its lines and the stock they take
+// off. A till that loses power or network half way through leaves no bill and no missing
+// pieces. Stock is reduced for EVERY line - a plain saree line off products.quantity, a
+// colour line off that colour's pieces and the saree's count together. The POS screen used
+// to do the plain lines itself in a second call, which left stock untouched whenever the
+// browser died after the bill was saved.
 app.post('/api/bills', authenticateToken, async (req, res) => {
     try {
-        const { bill, items } = req.body;
-
-        // Buying prices come from the database, not from the till: a salesman's screen
-        // never receives cost_price, and a posted cost could be anything.
-        const { data: costRows, error: costError } = await supabase
-            .from('products')
-            .select('id, cost_price')
-            .in('id', items.map((item) => item.product_id));
-        if (costError) throw costError;
-        const costOf = Object.fromEntries(costRows.map((p) => [p.id, parseFloat(p.cost_price) || 0]));
-        for (const item of items) item.cost_price = costOf[item.product_id] ?? 0;
-
-        // Colour stock: a line scanned from a colour barcode comes off that colour.
-        for (const item of items.filter((i) => i.color_id)) {
-            const { data: colour } = await supabase
-                .from('product_colors').select('pieces').eq('id', item.color_id).single();
-            await supabase.from('product_colors')
-                .update({ pieces: Math.max(0, (colour?.pieces || 0) - (item.quantity || 1)) })
-                .eq('id', item.color_id);
-
-            const { data: saree } = await supabase
-                .from('products').select('quantity').eq('id', item.product_id).single();
-            const left = Math.max(0, (saree?.quantity || 0) - (item.quantity || 1));
-            await supabase.from('products')
-                .update({ quantity: left, status: left <= 0 ? 'sold' : 'available' })
-                .eq('id', item.product_id);
+        const { bill = {}, items } = req.body;
+        if (!Array.isArray(items) || items.length === 0) {
+            return res.status(400).json({ error: 'A bill needs at least one item' });
         }
-        bill.total_cost = items.reduce((sum, item) => sum + item.cost_price * (item.quantity || 1), 0);
 
-        // Create bill
-        const { data: billData, error: billError } = await supabase
-            .from('bills')
-            .insert(bill)
-            .select()
-            .single();
+        const billData = await tx(async (client) => {
+            const lines = [];
+            for (const item of items) {
+                const quantity = Math.max(1, parseInt(item.quantity) || 1);
 
-        if (billError) throw billError;
+                // Buying price comes from the database, not from the till: a salesman's
+                // screen never receives cost_price, and a posted cost could be anything.
+                // for update locks the row, so two tills cannot both sell the last piece.
+                const product = (await client.query(
+                    'select id, cost_price, quantity, selling_price_a, selling_price from pos.products where id = $1 for update',
+                    [item.product_id],
+                )).rows[0];
+                if (!product) {
+                    const err = new Error('PRODUCT_NOT_FOUND');
+                    err.productId = item.product_id;
+                    throw err;
+                }
 
-        // Create bill items
-        const billItems = items.map(item => ({
-            ...item,
-            bill_id: billData.id
-        }));
+                const sellingPrice = item.selling_price ?? product.selling_price_a ?? product.selling_price;
+                const costPrice = parseFloat(product.cost_price) || 0;
 
-        const { error: itemsError } = await supabase
-            .from('bill_items')
-            .insert(billItems);
+                if (item.color_id) {
+                    const colour = (await client.query(
+                        'select id, pieces from pos.product_colors where id = $1 for update',
+                        [item.color_id],
+                    )).rows[0];
+                    if (!colour) {
+                        const err = new Error('COLOUR_NOT_FOUND');
+                        throw err;
+                    }
+                    const piecesLeft = Math.max(0, (colour.pieces || 0) - quantity);
+                    await client.query(
+                        `update pos.product_colors
+                            set pieces = $2, status = case when $2 <= 0 then 'sold' else 'available' end,
+                                updated_at = now()
+                          where id = $1`,
+                        [item.color_id, piecesLeft],
+                    );
+                }
 
-        if (itemsError) throw itemsError;
+                const left = Math.max(0, (product.quantity || 0) - quantity);
+                await client.query(
+                    `update pos.products
+                        set quantity = $2, status = case when $2 <= 0 then 'sold' else 'available' end,
+                            updated_at = now()
+                      where id = $1`,
+                    [product.id, left],
+                );
+
+                lines.push({ product_id: product.id, color_id: item.color_id || null, quantity, selling_price: sellingPrice, cost_price: costPrice });
+            }
+
+            const totalAmount = lines.reduce((sum, l) => sum + Number(l.selling_price) * l.quantity, 0);
+            const totalCost = lines.reduce((sum, l) => sum + l.cost_price * l.quantity, 0);
+
+            const { keys, columns, placeholders, values } = insertClause(
+                { ...bill, salesman_id: bill.salesman_id || req.user?.id || null },
+                BILL_COLUMNS,
+            );
+            const created = (await client.query(
+                `insert into pos.bills (bill_number, total_amount, total_cost${keys.length ? ', ' + columns : ''})
+                 values (pos.generate_bill_number(), $${keys.length + 1}, $${keys.length + 2}${keys.length ? ', ' + placeholders : ''})
+                 returning *`,
+                [...values, totalAmount.toFixed(2), totalCost.toFixed(2)],
+            )).rows[0];
+
+            for (const l of lines) {
+                await client.query(
+                    `insert into pos.bill_items (bill_id, product_id, color_id, quantity, selling_price, cost_price)
+                     values ($1, $2, $3, $4, $5, $6)`,
+                    [created.id, l.product_id, l.color_id, l.quantity, l.selling_price, l.cost_price],
+                );
+            }
+            return created;
+        });
 
         res.status(201).json(billData);
     } catch (err) {
+        if (err.message === 'PRODUCT_NOT_FOUND') return res.status(404).json({ error: 'A saree on this bill no longer exists' });
+        if (err.message === 'COLOUR_NOT_FOUND') return res.status(404).json({ error: 'A colour on this bill no longer exists' });
+        console.error('Failed to create bill:', err);
         res.status(500).json({ error: 'Failed to create bill' });
     }
 });
 
-// Update bill
+// Update bill (customer details, payment method, notes - not the money)
 app.put('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('bills')
-            .update(req.body)
-            .eq('id', req.params.id)
-            .select()
-            .single();
+        const { keys, sql, values } = setClause(req.body, BILL_COLUMNS);
+        if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
-        if (error) throw error;
-        res.json(data);
+        const row = await one(`update pos.bills set ${sql} where id = $1 returning *`, [req.params.id, ...values]);
+        if (!row) return res.status(404).json({ error: 'Bill not found' });
+        res.json(row);
     } catch (err) {
         console.error('Error updating bill:', err);
         res.status(500).json({ error: 'Failed to update bill' });
     }
 });
 
-// Delete bill (and restore inventory)
+// Delete bill, putting the stock back
+//
+// Also in one transaction, and the mirror image of creating it: a colour line puts its
+// pieces back on the colour as well as on the saree. The old code only ever restored the
+// saree, so a cancelled colour sale left that colour short for ever.
 app.delete('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        console.log('Deleting bill:', req.params.id);
+        const restored = await tx(async (client) => {
+            const bill = (await client.query('select id from pos.bills where id = $1 for update', [req.params.id])).rows[0];
+            if (!bill) return null;
 
-        // First get bill items to restore inventory
-        const { data: billItems, error: fetchError } = await supabase
-            .from('bill_items')
-            .select('product_id, quantity')
-            .eq('bill_id', req.params.id);
+            const lines = (await client.query(
+                'select product_id, color_id, quantity from pos.bill_items where bill_id = $1',
+                [req.params.id],
+            )).rows;
 
-        if (fetchError) {
-            console.error('Error fetching bill items:', fetchError);
-        }
-
-        // Restore inventory quantities
-        if (billItems && billItems.length > 0) {
-            for (const item of billItems) {
-                // Get current product
-                const { data: product } = await supabase
-                    .from('products')
-                    .select('quantity')
-                    .eq('id', item.product_id)
-                    .single();
-
-                if (product) {
-                    const newQty = (product.quantity || 0) + (item.quantity || 1);
-                    await supabase
-                        .from('products')
-                        .update({
-                            quantity: newQty,
-                            status: 'available' // Restore to available
-                        })
-                        .eq('id', item.product_id);
-
-                    console.log('Restored product:', item.product_id, 'qty:', newQty);
+            for (const line of lines) {
+                const quantity = line.quantity || 1;
+                if (line.color_id) {
+                    await client.query(
+                        `update pos.product_colors
+                            set pieces = coalesce(pieces, 0) + $2, status = 'available', updated_at = now()
+                          where id = $1`,
+                        [line.color_id, quantity],
+                    );
                 }
+                await client.query(
+                    `update pos.products
+                        set quantity = coalesce(quantity, 0) + $2, status = 'available', updated_at = now()
+                      where id = $1`,
+                    [line.product_id, quantity],
+                );
             }
-        }
 
-        // Delete bill items
-        await supabase
-            .from('bill_items')
-            .delete()
-            .eq('bill_id', req.params.id);
+            await client.query('delete from pos.bill_items where bill_id = $1', [req.params.id]);
+            await client.query('delete from pos.bills where id = $1', [req.params.id]);
+            return lines.length;
+        });
 
-        // Then delete the bill
-        const { error } = await supabase
-            .from('bills')
-            .delete()
-            .eq('id', req.params.id);
-
-        if (error) throw error;
-        console.log('Bill deleted, inventory restored');
-        res.json({ message: 'Bill deleted, inventory restored' });
+        if (restored === null) return res.status(404).json({ error: 'Bill not found' });
+        res.json({ message: 'Bill deleted, inventory restored', lines: restored });
     } catch (err) {
         console.error('Error deleting bill:', err);
         res.status(500).json({ error: 'Failed to delete bill' });

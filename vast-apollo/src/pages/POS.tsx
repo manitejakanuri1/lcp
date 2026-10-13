@@ -191,15 +191,9 @@ export function POS() {
 
             const bill = await billsApi.create(billData, billItems)
 
-            // Update inventory quantities. Colour lines are handled by the server,
-            // which takes the pieces off that colour and off the saree together.
-            for (const item of cart.filter((i) => !i.product.color_id)) {
-                const newQty = (item.product.quantity || 1) - item.quantity
-                await productsApi.update(item.product.id, {
-                    quantity: Math.max(0, newQty),
-                    status: newQty <= 0 ? 'sold' : 'available'
-                })
-            }
+            // Stock is not touched here: POST /api/bills reduces every line (plain
+            // sarees and colours) inside the same transaction as the bill, so a bill
+            // can never be saved without its stock coming off.
 
             // Save data for printing before clearing
             setLastBillData({ items: [...cart], customer: customerName, phone: customerPhone, payment: paymentMethod })
