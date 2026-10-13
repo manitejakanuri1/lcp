@@ -129,7 +129,7 @@ await db.query("delete from store.staff_users where provider_uid in ('zztest-fou
 await db.query('delete from pos.bill_counters');
 const left = (await db.query(
     `select (select count(*) from pos.products) as products, (select count(*) from pos.vendor_bills) as vendor_bills,
-            (select count(*) from pos.bills) as bills, (select count(*) from store.staff_users) as staff`,
+            (select count(*) from pos.bills) as bills, (select count(*) from store.staff_users where username like 'zz%') as staff`,
 )).rows[0];
 check('nothing left behind', Number(left.products) === 0 && Number(left.vendor_bills) === 0 && Number(left.bills) === 0 && Number(left.staff) === 0,
     `products=${left.products} vendor_bills=${left.vendor_bills} bills=${left.bills} staff=${left.staff}`);

@@ -144,7 +144,7 @@ check('nothing left behind', Number(left.products) === 0 && Number(left.colours)
     `products=${left.products} colours=${left.colours} bills=${left.bills} items=${left.items}`);
 
 await db.query("delete from store.staff_users where provider_uid in ('zztest-founder','zztest-salesman')");
-const staffLeft = (await db.query("select count(*) as n from store.staff_users")).rows[0].n;
+const staffLeft = (await db.query("select count(*) as n from store.staff_users where username like 'zz%'")).rows[0].n;
 check('test staff rows removed', Number(staffLeft) === 0, `staff_users=${staffLeft}`);
 
 await db.end();

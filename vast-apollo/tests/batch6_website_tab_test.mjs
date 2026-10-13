@@ -183,7 +183,7 @@ await db.query("select setval('pos.barcode_seq', 10000000, false)");
 const leftovers = await listColourFiles(id);
 for (const name of leftovers) await storage.bucket(PHOTO_BUCKET).file(name).delete().catch(() => {});
 const [anyPhotos] = await storage.bucket(PHOTO_BUCKET).getFiles({ maxResults: 5 });
-const rows = (await db.query('select (select count(*) from pos.products) as products, (select count(*) from pos.product_colors) as colours, (select count(*) from store.staff_users) as staff')).rows[0];
+const rows = (await db.query("select (select count(*) from pos.products) as products, (select count(*) from pos.product_colors) as colours, (select count(*) from store.staff_users where username like 'zz%') as staff")).rows[0];
 check('nothing left behind', anyPhotos.length === 0 && Number(rows.products) === 0 && Number(rows.colours) === 0 && Number(rows.staff) === 0,
     `files=${anyPhotos.length} products=${rows.products} colours=${rows.colours} staff=${rows.staff}`);
 

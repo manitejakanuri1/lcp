@@ -188,7 +188,7 @@ await db.query("select setval('pos.barcode_seq', 10000000, false)");
 const left = (await db.query(
     `select (select count(*) from pos.products) as products, (select count(*) from pos.bills) as bills,
             (select count(*) from pos.expenses) as expenses, (select count(*) from pos.vendor_bills) as vendor_bills,
-            (select count(*) from store.staff_users) as staff`,
+            (select count(*) from store.staff_users where username like 'zz%') as staff`,
 )).rows[0];
 check('nothing left behind', Object.values(left).every((n) => Number(n) === 0), JSON.stringify(left));
 

@@ -179,7 +179,7 @@ await db.query("select setval('pos.barcode_seq', 10000000, false)");
 const [photoLeft] = await storage.bucket(PHOTO_BUCKET).getFiles({ prefix: 'products/' });
 const [colourLeft] = await storage.bucket(PHOTO_BUCKET).getFiles({ prefix: 'colors/' });
 const [billLeft] = await storage.bucket(BILL_BUCKET).getFiles({ prefix: 'zzb5' });
-const rows = (await db.query('select (select count(*) from pos.products) as products, (select count(*) from store.staff_users) as staff, (select count(*) from pos.vendor_bills) as vendor_bills')).rows[0];
+const rows = (await db.query("select (select count(*) from pos.products) as products, (select count(*) from store.staff_users where username like 'zz%') as staff, (select count(*) from pos.vendor_bills) as vendor_bills")).rows[0];
 check('nothing left in either bucket or the database',
     photoLeft.length === 0 && colourLeft.length === 0 && billLeft.length === 0 && Number(rows.products) === 0 && Number(rows.staff) === 0 && Number(rows.vendor_bills) === 0,
     `photos=${photoLeft.length} colours=${colourLeft.length} bills=${billLeft.length} products=${rows.products} staff=${rows.staff}`);

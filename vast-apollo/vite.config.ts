@@ -5,6 +5,14 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
+  // The screens call /api/... so the dev server hands those straight to the API running
+  // locally (node api/index.js on 3099). In production both sit behind one address, so no
+  // proxy is needed there.
+  server: {
+    proxy: {
+      '/api': { target: process.env.VITE_DEV_API || 'http://127.0.0.1:3099', changeOrigin: true },
+    },
+  },
   build: {
     target: 'es2017',
   },

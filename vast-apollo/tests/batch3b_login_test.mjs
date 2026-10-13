@@ -169,7 +169,7 @@ for (const uid of uids) {
     if (res.ok) removedLogins++;
 }
 await db.query("delete from store.staff_users where username like 'zz%'");
-const left = (await db.query('select count(*)::int as n from store.staff_users')).rows[0].n;
+const left = (await db.query("select count(*)::int as n from store.staff_users where username like 'zz%'")).rows[0].n;
 check('every test staff row and Firebase login removed', left === 0 && removedLogins === uids.length, `staff rows=${left} logins deleted=${removedLogins}/${uids.length}`);
 
 await db.end();
