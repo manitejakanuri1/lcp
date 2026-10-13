@@ -711,85 +711,76 @@ app.get('/api/analytics/daily-sales', authenticateToken, requireStaff, async (re
 // ================== VENDOR BILLS ROUTES ==================
 
 // Create vendor bill with products
+// What a purchase bill may carry from a request. The rates and the rupee amount are kept as
+// they were printed on the paper, so a later rate change cannot rewrite an old bill.
+const VENDOR_BILL_COLUMNS = [
+    'company_name', 'bill_number', 'bill_date', 'vendor_gst_number', 'is_local_transaction',
+    'subtotal', 'total_amount', 'gst_amount', 'cgst_rate', 'sgst_rate', 'igst_rate', 'notes',
+];
+
+// Create a purchase bill together with the sarees that came in on it
+//
+// One transaction: a bill whose sarees failed to save would show a purchase with nothing
+// bought, and the GST report would count tax against stock that does not exist.
 app.post('/api/vendor-bills', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { bill, products } = req.body;
+        const { bill = {}, products = [] } = req.body;
+        const billFields = insertClause({ ...bill, created_by: req.user?.id ?? null }, [...VENDOR_BILL_COLUMNS, 'created_by']);
+        if (!bill.company_name) return res.status(400).json({ error: 'The vendor name is required' });
 
+        const result = await tx(async (client) => {
+            const created = (await client.query(
+                `insert into pos.vendor_bills (${billFields.columns}) values (${billFields.placeholders}) returning *`,
+                billFields.values,
+            )).rows[0];
 
-        // 1. Create the Vendor Bill
-        const { data: billData, error: billError } = await supabase
-            .from('vendor_bills')
-            .insert(bill)
-            .select()
-            .single();
-
-        if (billError) {
-            console.error('Error creating vendor bill:', billError);
-            throw billError;
-        }
-
-        // 2. Prepare products with the new vendor_bill_id
-        if (products && products.length > 0) {
-            const productsToInsert = products.map(p => ({
-                ...p,
-                vendor_bill_id: billData.id
-            }));
-
-            const { data: createdProducts, error: productsError } = await supabase
-                .from('products')
-                .insert(productsToInsert)
-                .select();
-
-            if (productsError) {
-                console.error('Error adding products to bill:', productsError);
-                throw productsError;
+            const saved = [];
+            for (const product of products) {
+                const row = insertClause({ ...product, vendor_bill_id: created.id, created_by: req.user?.id ?? null },
+                    [...PRODUCT_COLUMNS, 'created_by']);
+                saved.push((await client.query(
+                    `insert into pos.products (${row.columns}) values (${row.placeholders}) returning *`,
+                    row.values,
+                )).rows[0]);
             }
+            return { ...created, products: saved };
+        });
 
-            return res.status(201).json({ ...billData, products: createdProducts || [] });
-        }
-
-        res.status(201).json({ ...billData, products: [] });
+        res.status(201).json(result);
     } catch (err) {
         console.error('Failed to create vendor purchase:', err);
-        res.status(500).json({ error: 'Failed to create vendor purchase' });
+        res.status(500).json({ error: err.message || 'Failed to create vendor purchase' });
     }
 });
 
 // Get all vendor bills
 app.get('/api/vendor-bills', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('vendor_bills')
-            .select('*')
-            .order('bill_date', { ascending: false });
-
-        if (error) throw error;
-        res.json(data);
+        const rows = await many(
+            `select b.*, (select count(*) from pos.products p where p.vendor_bill_id = b.id) as product_count
+               from pos.vendor_bills b
+              order by b.bill_date desc nulls last, b.created_at desc`,
+        );
+        res.json(rows);
     } catch (err) {
+        console.error('Failed to fetch vendor bills:', err);
         res.status(500).json({ error: 'Failed to fetch vendor bills' });
     }
 });
 
-// Get vendor bill by ID with products
+// Get vendor bill by ID with the sarees that came in on it
 app.get('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data: bill, error: billError } = await supabase
-            .from('vendor_bills')
-            .select('*')
-            .eq('id', req.params.id)
-            .single();
+        const bill = await one('select * from pos.vendor_bills where id = $1', [req.params.id]);
+        if (!bill) return res.status(404).json({ error: 'Vendor bill not found' });
 
-        if (billError) throw billError;
-
-        const { data: products, error: prodError } = await supabase
-            .from('products')
-            .select('*')
-            .eq('vendor_bill_id', req.params.id);
-
-        if (prodError) throw prodError;
-
+        const products = await many(
+            'select * from pos.products where vendor_bill_id = $1 order by created_at',
+            [req.params.id],
+        );
         res.json({ ...bill, products });
     } catch (err) {
+        console.error('Failed to fetch vendor bill details:', err);
         res.status(500).json({ error: 'Failed to fetch vendor bill details' });
     }
 });
@@ -797,45 +788,53 @@ app.get('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, re
 // Update vendor bill
 app.put('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { company_name, bill_number, bill_date, vendor_gst_number, is_local_transaction, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate } = req.body;
+        const { keys, sql, values } = setClause(req.body, VENDOR_BILL_COLUMNS);
+        // A body of nothing but unknown fields used to reach the database and come back a 500.
+        if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
-        const updateData = {};
-        if (company_name !== undefined) updateData.company_name = company_name;
-        if (bill_number !== undefined) updateData.bill_number = bill_number;
-        if (bill_date !== undefined) updateData.bill_date = bill_date;
-        if (vendor_gst_number !== undefined) updateData.vendor_gst_number = vendor_gst_number;
-        if (is_local_transaction !== undefined) updateData.is_local_transaction = is_local_transaction;
-        if (total_amount !== undefined) updateData.total_amount = total_amount;
-        if (gst_amount !== undefined) updateData.gst_amount = gst_amount;
-        if (cgst_rate !== undefined) updateData.cgst_rate = cgst_rate;
-        if (sgst_rate !== undefined) updateData.sgst_rate = sgst_rate;
-        if (igst_rate !== undefined) updateData.igst_rate = igst_rate;
-
-        const { data, error } = await supabase
-            .from('vendor_bills')
-            .update(updateData)
-            .eq('id', req.params.id)
-            .select()
-            .single();
-
-        if (error) throw error;
-        res.json(data);
+        const row = await one(
+            `update pos.vendor_bills set ${sql}, updated_at = now() where id = $1 returning *`,
+            [req.params.id, ...values],
+        );
+        if (!row) return res.status(404).json({ error: 'Vendor bill not found' });
+        res.json(row);
     } catch (err) {
         console.error('Error updating vendor bill:', err);
         res.status(500).json({ error: 'Failed to update vendor bill' });
     }
 });
 
-// Delete vendor bill (products cascade-deleted via FK)
+// Delete vendor bill, and the sarees that came in on it
+//
+// A saree that has already been sold is not deleted and the whole thing is refused: wiping it
+// would take its line off a customer's bill and change the day's takings. The foreign key
+// would have refused it anyway, with an error nobody could read.
 app.delete('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { error } = await supabase
-            .from('vendor_bills')
-            .delete()
-            .eq('id', req.params.id);
+        const outcome = await tx(async (client) => {
+            const bill = (await client.query('select id from pos.vendor_bills where id = $1 for update', [req.params.id])).rows[0];
+            if (!bill) return { status: 404 };
 
-        if (error) throw error;
-        res.json({ message: 'Vendor bill deleted' });
+            const sold = (await client.query(
+                `select count(*)::int as n from pos.bill_items i
+                  join pos.products p on p.id = i.product_id
+                 where p.vendor_bill_id = $1`,
+                [req.params.id],
+            )).rows[0].n;
+            if (sold > 0) return { status: 409, sold };
+
+            const { rowCount } = await client.query('delete from pos.products where vendor_bill_id = $1', [req.params.id]);
+            await client.query('delete from pos.vendor_bills where id = $1', [req.params.id]);
+            return { status: 200, removed: rowCount };
+        });
+
+        if (outcome.status === 404) return res.status(404).json({ error: 'Vendor bill not found' });
+        if (outcome.status === 409) {
+            return res.status(409).json({
+                error: `${outcome.sold} saree${outcome.sold === 1 ? '' : 's'} from this bill ${outcome.sold === 1 ? 'has' : 'have'} already been sold, so the bill cannot be deleted. Correct the bill instead.`,
+            });
+        }
+        res.json({ message: 'Vendor bill deleted', sarees_removed: outcome.removed });
     } catch (err) {
         console.error('Error deleting vendor bill:', err);
         res.status(500).json({ error: 'Failed to delete vendor bill' });
