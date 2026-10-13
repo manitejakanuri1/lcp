@@ -3,24 +3,17 @@ import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
-import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import sharp from 'sharp';
 import { many, one, count, tx, insertClause, setClause } from './db.js';
 import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
-import { storePhoto, sweepFolder, storeBill, readBill, originalUrlFor } from './storage.js';
+import { storePhoto, sweepFolder, deletePhotoPair, storeBill, readBill, originalUrlFor } from './storage.js';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// Initialize Supabase with SERVICE ROLE key (server-side only!)
-const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SERVICE_KEY
-);
 
 // Configure multer for memory storage (file upload)
 const upload = multer({
@@ -128,6 +121,9 @@ const authenticateToken = async (req, res, next) => {
         return res.status(403).json({ error: 'Invalid token' });
     }
 };
+
+// A colour the website can group on: "red", "RED" and "Red" have to be one colour.
+const titleCase = (value) => String(value || '').trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 // The roles a staff row may carry. store.staff_users also allows the website's own roles
 // (merchandiser, editor, support), which the POS screens have no meaning for.
@@ -1431,17 +1427,25 @@ app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (re
 app.get('/api/website/products', authenticateToken, async (req, res) => {
     try {
         const live = req.query.status === 'live';
-        const { data, error } = await supabase
-            .from('products')
-            .select('id, sku, barcode_no, vendor_name, saree_name, saree_type, color, main_color_pieces, material, selling_price_a, selling_price_b, image_url, quantity, status, on_website, created_at, product_colors(id, color_name, sku, barcode_no, image_url, pieces, sort_order, created_at)')
-            .eq('on_website', live)
-            .eq('status', 'available')
-            .order('created_at', { ascending: false });
-        if (error) throw error;
-        for (const p of data) {
-            p.product_colors.sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
-        }
-        res.json(data);
+        // The colours come back nested and already in the order the screen shows them, so the
+        // sort no longer happens in JavaScript after the fact.
+        const rows = await many(
+            `select p.id, p.sku, p.barcode_no, p.vendor_name, p.saree_name, p.saree_type, p.color,
+                    p.main_color_pieces, p.material, p.selling_price_a, p.selling_price_b,
+                    p.image_url, p.quantity, p.status, p.on_website, p.created_at,
+                    coalesce((
+                      select jsonb_agg(jsonb_build_object(
+                               'id', c.id, 'color_name', c.color_name, 'sku', c.sku,
+                               'barcode_no', c.barcode_no, 'image_url', c.image_url,
+                               'pieces', c.pieces, 'sort_order', c.sort_order, 'created_at', c.created_at)
+                             order by c.sort_order, c.created_at)
+                        from pos.product_colors c where c.product_id = p.id), '[]'::jsonb) as product_colors
+               from pos.products p
+              where p.on_website = $1 and p.status = 'available'
+              order by p.created_at desc`,
+            [live],
+        );
+        res.json(rows.map((row) => forRole(req, row)));
     } catch (err) {
         console.error('Website products error:', err);
         res.status(500).json({ error: 'Failed to load website products' });
@@ -1454,32 +1458,45 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
         const changes = {};
         if (req.body.saree_type !== undefined) changes.saree_type = req.body.saree_type || null;
         if (req.body.on_website !== undefined) changes.on_website = !!req.body.on_website;
-        if (req.body.color !== undefined) changes.color = String(req.body.color || '').trim().toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) || null;
+        if (req.body.color !== undefined) changes.color = titleCase(req.body.color) || null;
         if (req.body.main_color_pieces !== undefined) changes.main_color_pieces = Math.max(0, parseInt(req.body.main_color_pieces) || 0);
 
-        // A colour with no photo would show as an empty tile on the website, so the
-        // switch stays off until every colour has its picture.
-        if (changes.on_website === true) {
-            const { data: bare } = await supabase.from('product_colors')
-                .select('color_name').eq('product_id', req.params.id).is('image_url', null);
-            if (bare?.length) {
-                return res.status(400).json({
-                    error: `Add photos for ${bare.map((c) => c.color_name).join(', ')} before showing it on the website`,
-                });
+        const { keys, sql, values } = setClause(changes, ['saree_type', 'on_website', 'color', 'main_color_pieces']);
+        if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
+
+        // The check and the switch happen in one transaction, so a colour whose photo is
+        // deleted at the same moment cannot slip onto the website between the two.
+        const result = await tx(async (client) => {
+            if (changes.on_website === true) {
+                // A colour with no photo would show as an empty tile on the website.
+                const bare = (await client.query(
+                    'select color_name from pos.product_colors where product_id = $1 and image_url is null order by sort_order',
+                    [req.params.id],
+                )).rows;
+                if (bare.length) return { bare: bare.map((c) => c.color_name) };
             }
+            const row = (await client.query(
+                `update pos.products set ${sql}, updated_at = now() where id = $1
+                 returning id, saree_type, on_website, color, main_color_pieces`,
+                [req.params.id, ...values],
+            )).rows[0];
+            return { row };
+        });
+
+        if (result.bare) {
+            return res.status(400).json({
+                error: `Add photos for ${result.bare.join(', ')} before showing it on the website`,
+            });
         }
-        const { data, error } = await supabase
-            .from('products').update(changes).eq('id', req.params.id)
-            .select('id, saree_type, on_website, color, main_color_pieces').single();
-        if (error) throw error;
-        res.json(data);
+        if (!result.row) return res.status(404).json({ error: 'Product not found' });
+        res.json(result.row);
     } catch (err) {
         console.error('Website product update error:', err);
         res.status(500).json({ error: 'Failed to update product' });
     }
 });
 
-// Add one colour with its photo (multipart: photo + color_name)
+// Add one colour, with or without its photo (multipart: photo + color_name)
 const storeColourPhoto = async (productId, buffer) => {
     // Its own folder, separate from the saree's main photo, whose upload sweeps its folder.
     const { url } = await storePhoto(`colors/${productId}`, buffer);
@@ -1489,31 +1506,36 @@ const storeColourPhoto = async (productId, buffer) => {
 app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
     try {
         // "red" and "RED" must be the same colour for the website's colour filter.
-        const colorName = String(req.body.color_name || '').trim().toLowerCase()
-            .replace(/\b\w/g, (c) => c.toUpperCase());
+        const colorName = titleCase(req.body.color_name);
         if (!colorName) return res.status(400).json({ error: 'Colour name is required' });
 
-        const imageUrl = req.file ? await storeColourPhoto(req.params.id, req.file.buffer) : null;
+        const parent = await one('select id, sku from pos.products where id = $1', [req.params.id]);
+        if (!parent) return res.status(404).json({ error: 'Product not found' });
 
-        const pieces = Math.max(0, parseInt(req.body.pieces) || 0);
-        const { data: parent } = await supabase.from('products').select('sku').eq('id', req.params.id).single();
-        // Two colours can share the first three letters (Dark Blue / Dark Green), and
-        // the barcode has to stay unique, so a clash gets a number.
-        const base = `${parent?.sku || 'S'}-${colorName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'CLR'}`;
+        // Two colours can share the first three letters (Dark Blue / Dark Green) and the
+        // barcode has to stay unique, so a clash gets a number. One query finds every name
+        // already taken instead of asking once per attempt.
+        const base = `${parent.sku || 'S'}-${colorName.replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || 'CLR'}`;
+        const taken = new Set((await many(
+            'select sku from pos.product_colors where sku = $1 or sku like $2',
+            [base, `${base}%`],
+        )).map((r) => r.sku));
         let colourSku = base;
-        for (let n = 2; n < 50; n++) {
-            const { data: clash } = await supabase.from('product_colors')
-                .select('id').eq('sku', colourSku).maybeSingle();
-            if (!clash) break;
-            colourSku = `${base}${n}`;
-        }
-        const { count } = await supabase.from('product_colors')
-            .select('id', { count: 'exact', head: true }).eq('product_id', req.params.id);
-        const { data, error } = await supabase.from('product_colors')
-            .insert({ product_id: req.params.id, color_name: colorName, sku: colourSku, image_url: imageUrl, pieces, sort_order: count || 0 })
-            .select().single();
-        if (error) throw error;
-        res.status(201).json(data);
+        for (let n = 2; taken.has(colourSku) && n < 100; n++) colourSku = `${base}${n}`;
+
+        // The photo is optional: colours are often tagged from the vendor's sheet first and
+        // photographed later, and the website switch is what refuses a colour with no picture.
+        const imageUrl = req.file ? await storeColourPhoto(req.params.id, req.file.buffer) : null;
+        const pieces = Math.max(0, parseInt(req.body.pieces) || 0);
+
+        const row = await one(
+            `insert into pos.product_colors (product_id, color_name, sku, image_url, pieces, sort_order)
+             values ($1, $2, $3, $4, $5,
+                     (select count(*) from pos.product_colors where product_id = $1))
+             returning *`,
+            [req.params.id, colorName, colourSku, imageUrl, pieces],
+        );
+        res.status(201).json(row);
     } catch (err) {
         console.error('Add colour error:', err);
         res.status(500).json({ error: 'Failed to add colour' });
@@ -1527,7 +1549,7 @@ app.post('/api/website/colors/split', authenticateToken, requireStaff, singlePho
     try {
         if (!req.file) return res.status(400).json({ error: 'Choose a PDF or a photo' });
 
-        const splitUrl = (process.env.TESSERACT_OCR_URL || '').replace(/\/ocr$/, '/split');
+        const splitUrl = (process.env.OCR_SERVICE_URL || process.env.TESSERACT_OCR_URL || '').replace(/\/ocr$/, '/split');
         if (!splitUrl) return res.status(503).json({ error: 'Splitter is not configured' });
 
         const form = new FormData();
@@ -1552,24 +1574,21 @@ app.put('/api/website/colors/:id/photo', authenticateToken, requireStaff, single
     try {
         if (!req.file) return res.status(400).json({ error: 'Choose a photo' });
 
-        const { data: colour, error: findError } = await supabase.from('product_colors')
-            .select('id, product_id, image_url').eq('id', req.params.id).single();
-        if (findError) throw findError;
+        const colour = await one('select id, product_id, image_url from pos.product_colors where id = $1', [req.params.id]);
+        if (!colour) return res.status(404).json({ error: 'Colour not found' });
 
         const imageUrl = await storeColourPhoto(colour.product_id, req.file.buffer);
+        const row = await one(
+            'update pos.product_colors set image_url = $2, updated_at = now() where id = $1 returning *',
+            [req.params.id, imageUrl],
+        );
 
-        const { data, error } = await supabase.from('product_colors')
-            .update({ image_url: imageUrl }).eq('id', req.params.id).select().single();
-        if (error) throw error;
-
-        // The old shot is dead weight once the new one is in place.
-        const marker = '/product-photos/';
-        const at = colour.image_url?.indexOf(marker) ?? -1;
-        if (at >= 0) {
-            await supabase.storage.from('product-photos').remove([colour.image_url.slice(at + marker.length)]);
+        // The old shot is dead weight once the new one is saved. Only that one pair is deleted:
+        // every colour of this saree shares the folder.
+        if (colour.image_url) {
+            await deletePhotoPair(colour.image_url).catch((err) => console.error('Old colour photo cleanup failed:', err.message));
         }
-
-        res.json(data);
+        res.json(row);
     } catch (err) {
         console.error('Set colour photo error:', err);
         res.status(500).json({ error: 'Failed to save the photo' });
@@ -1579,13 +1598,24 @@ app.put('/api/website/colors/:id/photo', authenticateToken, requireStaff, single
 // Remove one colour and its photo
 app.delete('/api/website/colors/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data: color, error } = await supabase.from('product_colors')
-            .delete().eq('id', req.params.id).select().single();
-        if (error) throw error;
-        const marker = '/product-photos/';
-        const at = color.image_url?.indexOf(marker) ?? -1;
-        if (at >= 0) {
-            await supabase.storage.from('product-photos').remove([color.image_url.slice(at + marker.length)]);
+        // Taking a colour off a saree that is live on the website would leave the shop with a
+        // page it cannot show, so it comes off the website at the same time.
+        const removed = await tx(async (client) => {
+            const colour = (await client.query('delete from pos.product_colors where id = $1 returning *', [req.params.id])).rows[0];
+            if (!colour) return null;
+            const left = (await client.query(
+                'select count(*)::int as n from pos.product_colors where product_id = $1 and image_url is null',
+                [colour.product_id],
+            )).rows[0].n;
+            if (left > 0) {
+                await client.query("update pos.products set on_website = false, updated_at = now() where id = $1 and on_website", [colour.product_id]);
+            }
+            return colour;
+        });
+
+        if (!removed) return res.status(404).json({ error: 'Colour not found' });
+        if (removed.image_url) {
+            await deletePhotoPair(removed.image_url).catch((err) => console.error('Colour photo cleanup failed:', err.message));
         }
         res.json({ message: 'Colour removed' });
     } catch (err) {

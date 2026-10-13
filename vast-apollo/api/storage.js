@@ -72,6 +72,24 @@ export async function sweepFolder(folder, keepStamp = null) {
     return stale.length;
 }
 
+/**
+ * Delete the pair behind one web photo URL.
+ * Used where a folder holds more than one picture - every colour of a saree shares a folder -
+ * so sweeping it would take the other colours' photos with it.
+ */
+export async function deletePhotoPair(webUrl) {
+    const marker = `/${BUCKET}/`;
+    const at = webUrl?.indexOf(marker) ?? -1;
+    if (at < 0) return false;
+    const webPath = webUrl.slice(at + marker.length);
+    const originalPath = webPath.replace('/web/', '/original/').replace(/\.webp$/, '.jpg');
+    await Promise.all([
+        bucket().file(webPath).delete().catch(() => {}),
+        bucket().file(originalPath).delete().catch(() => {}),
+    ]);
+    return true;
+}
+
 /** Store a vendor bill as it is - no resizing, the small print has to stay readable. */
 export async function storeBill(path, buffer, contentType) {
     await bills().file(path).save(buffer, { contentType, metadata: { cacheControl: 'private, max-age=0' } });

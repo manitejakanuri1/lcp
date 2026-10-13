@@ -52,14 +52,18 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         runtimeCaching: [
           {
-            urlPattern: /^https:\/\/.*\.supabase\.co\/.*/i,
-            handler: 'NetworkFirst',
+            // Saree photos: same name for ever once uploaded, so they can be served from the
+            // phone's own cache and only fetched when missing. This is what makes the second
+            // visit to a page instant on shop mobile data.
+            urlPattern: /^https:\/\/storage\.googleapis\.com\/lakshmi-sarees-photos\/.*/i,
+            handler: 'CacheFirst',
             options: {
-              cacheName: 'supabase-cache',
+              cacheName: 'saree-photos',
               expiration: {
-                maxEntries: 50,
-                maxAgeSeconds: 60 * 60 * 24 // 24 hours
-              }
+                maxEntries: 300,
+                maxAgeSeconds: 60 * 60 * 24 * 30 // a month
+              },
+              cacheableResponse: { statuses: [0, 200] }
             }
           }
         ]
