@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import sharp from 'sharp';
-import { many, one, tx, insertClause, setClause } from './db.js';
+import { many, one, count, tx, insertClause, setClause } from './db.js';
 import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
 
 // Load environment variables
@@ -684,30 +684,24 @@ app.delete('/api/bills/:id', authenticateToken, requireStaff, async (req, res) =
 app.get('/api/analytics/summary', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
-
-        const { data, error } = await supabase.rpc('get_analytics_summary', {
-            start_date: startDate || null,
-            end_date: endDate || null
-        });
-
-        if (error) throw error;
-        res.json(data);
+        // The sums live in the database (pos.get_analytics_summary), so the shop's Analytics
+        // screen and the website's own analytics read one definition of "sold" and "in stock".
+        const row = await one('select * from pos.get_analytics_summary($1::date, $2::date)',
+            [startDate || null, endDate || null]);
+        res.json(row);
     } catch (err) {
+        console.error('Failed to fetch analytics:', err);
         res.status(500).json({ error: 'Failed to fetch analytics' });
     }
 });
 
 app.get('/api/analytics/daily-sales', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { days } = req.query;
-
-        const { data, error } = await supabase.rpc('get_daily_sales', {
-            days_back: parseInt(days) || 30
-        });
-
-        if (error) throw error;
-        res.json(data);
+        const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 730);
+        const rows = await many('select * from pos.get_daily_sales($1)', [days]);
+        res.json(rows);
     } catch (err) {
+        console.error('Failed to fetch daily sales:', err);
         res.status(500).json({ error: 'Failed to fetch daily sales' });
     }
 });
@@ -943,20 +937,30 @@ app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) =>
 // ================== EXPENSES ROUTES ==================
 
 // Get all expenses (with optional date range and category filter)
+// The spend headings the Expenses screen offers. Written down here as well as on the screen
+// so a typed-in heading cannot quietly create a category nobody ever reports on.
+const EXPENSE_CATEGORIES = ['Rent', 'Salary', 'Electricity', 'Transport', 'Packaging', 'Miscellaneous'];
+const EXPENSE_COLUMNS = ['category', 'description', 'amount', 'expense_date'];
+
 app.get('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate, category } = req.query;
+        const where = [];
+        const params = [];
+        const add = (sql, value) => {
+            params.push(value);
+            where.push(sql.replace('?', `$${params.length}`));
+        };
+        if (startDate) add('expense_date >= ?', startDate);
+        if (endDate) add('expense_date <= ?', endDate);
+        if (category) add('category = ?', category);
 
-        let query = supabase.from('expenses').select('*');
-
-        if (startDate) query = query.gte('expense_date', startDate);
-        if (endDate) query = query.lte('expense_date', endDate);
-        if (category) query = query.eq('category', category);
-
-        const { data, error } = await query.order('expense_date', { ascending: false });
-
-        if (error) throw error;
-        res.json(data);
+        const rows = await many(
+            `select * from pos.expenses${where.length ? ` where ${where.join(' and ')}` : ''}`
+            + ' order by expense_date desc, created_at desc',
+            params,
+        );
+        res.json(rows);
     } catch (err) {
         console.error('Error fetching expenses:', err);
         res.status(500).json({ error: 'Failed to fetch expenses' });
@@ -967,21 +971,22 @@ app.get('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
 app.post('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { category, description, amount, expense_date } = req.body;
+        if (!EXPENSE_CATEGORIES.includes(category)) {
+            return res.status(400).json({ error: `Category must be one of: ${EXPENSE_CATEGORIES.join(', ')}` });
+        }
+        const value = parseFloat(amount);
+        // A blank or mistyped amount used to be saved as NaN and then read back as null, which
+        // silently left it out of the profit figure.
+        if (!Number.isFinite(value) || value <= 0) {
+            return res.status(400).json({ error: 'Amount must be a number greater than zero' });
+        }
 
-        const { data, error } = await supabase
-            .from('expenses')
-            .insert({
-                category,
-                description: description || null,
-                amount: parseFloat(amount),
-                expense_date: expense_date || new Date().toISOString().split('T')[0],
-                created_by: req.user.id
-            })
-            .select()
-            .single();
-
-        if (error) throw error;
-        res.status(201).json(data);
+        const row = await one(
+            `insert into pos.expenses (category, description, amount, expense_date, created_by)
+             values ($1, $2, $3, coalesce($4::date, current_date), $5) returning *`,
+            [category, description || null, value, expense_date || null, req.user.id],
+        );
+        res.status(201).json(row);
     } catch (err) {
         console.error('Error creating expense:', err);
         res.status(500).json({ error: 'Failed to create expense' });
@@ -991,23 +996,29 @@ app.post('/api/expenses', authenticateToken, requireStaff, async (req, res) => {
 // Update expense (founder only)
 app.put('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
     try {
-        const { category, description, amount, expense_date } = req.body;
+        const patch = {};
+        if (req.body.category !== undefined) {
+            if (!EXPENSE_CATEGORIES.includes(req.body.category)) {
+                return res.status(400).json({ error: `Category must be one of: ${EXPENSE_CATEGORIES.join(', ')}` });
+            }
+            patch.category = req.body.category;
+        }
+        if (req.body.description !== undefined) patch.description = req.body.description || null;
+        if (req.body.expense_date !== undefined) patch.expense_date = req.body.expense_date;
+        if (req.body.amount !== undefined) {
+            const value = parseFloat(req.body.amount);
+            if (!Number.isFinite(value) || value <= 0) {
+                return res.status(400).json({ error: 'Amount must be a number greater than zero' });
+            }
+            patch.amount = value;
+        }
 
-        const updateData = {};
-        if (category !== undefined) updateData.category = category;
-        if (description !== undefined) updateData.description = description;
-        if (amount !== undefined) updateData.amount = parseFloat(amount);
-        if (expense_date !== undefined) updateData.expense_date = expense_date;
+        const { keys, sql, values } = setClause(patch, EXPENSE_COLUMNS);
+        if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
-        const { data, error } = await supabase
-            .from('expenses')
-            .update(updateData)
-            .eq('id', req.params.id)
-            .select()
-            .single();
-
-        if (error) throw error;
-        res.json(data);
+        const row = await one(`update pos.expenses set ${sql} where id = $1 returning *`, [req.params.id, ...values]);
+        if (!row) return res.status(404).json({ error: 'Expense not found' });
+        res.json(row);
     } catch (err) {
         console.error('Error updating expense:', err);
         res.status(500).json({ error: 'Failed to update expense' });
@@ -1017,12 +1028,8 @@ app.put('/api/expenses/:id', authenticateToken, requireFounder, async (req, res)
 // Delete expense (founder only)
 app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, res) => {
     try {
-        const { error } = await supabase
-            .from('expenses')
-            .delete()
-            .eq('id', req.params.id);
-
-        if (error) throw error;
+        const removed = await count('delete from pos.expenses where id = $1', [req.params.id]);
+        if (!removed) return res.status(404).json({ error: 'Expense not found' });
         res.json({ message: 'Expense deleted' });
     } catch (err) {
         console.error('Error deleting expense:', err);
@@ -1032,78 +1039,56 @@ app.delete('/api/expenses/:id', authenticateToken, requireFounder, async (req, r
 
 // ================== GST REPORT ROUTES ==================
 
+// Shop sales are rung up GST-inclusive at 5%, so a bill of 1,050 is 1,000 of goods and 50 of
+// tax. Both reports split it the same way; keeping the figure in one place stops the GST return
+// and the profit statement from disagreeing.
+const GST_INCLUSIVE_DIVISOR = 1.05;
+
 app.get('/api/reports/gst', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { startDate, endDate } = req.query;
 
-        // Input GST from vendor_bills
-        let vendorQuery = supabase
-            .from('vendor_bills')
-            .select('bill_date, total_amount, gst_amount, cgst_rate, sgst_rate, igst_rate, is_local_transaction');
-
-        if (startDate) vendorQuery = vendorQuery.gte('bill_date', startDate);
-        if (endDate) vendorQuery = vendorQuery.lte('bill_date', endDate);
-
-        const { data: vendorBills, error: vendorError } = await vendorQuery;
-        if (vendorError) throw vendorError;
-
-        // Output GST from sales bills (5% GST on all in-store sales, local)
-        let salesQuery = supabase
-            .from('bills')
-            .select('created_at, total_amount');
-
-        if (startDate) salesQuery = salesQuery.gte('created_at', startDate);
-        if (endDate) salesQuery = salesQuery.lte('created_at', endDate + 'T23:59:59');
-
-        const { data: salesBills, error: salesError } = await salesQuery;
-        if (salesError) throw salesError;
-
-        // Aggregate by month
-        const monthlyData = {};
-
-        for (const vb of (vendorBills || [])) {
-            const month = vb.bill_date.substring(0, 7);
-            if (!monthlyData[month]) {
-                monthlyData[month] = {
-                    month,
-                    input_cgst: 0, input_sgst: 0, input_igst: 0, input_total: 0,
-                    output_cgst: 0, output_sgst: 0, output_igst: 0, output_total: 0,
-                    purchase_total: 0, sales_total: 0,
-                };
-            }
-            const m = monthlyData[month];
-            m.purchase_total += parseFloat(vb.total_amount) || 0;
-            if (vb.is_local_transaction) {
-                m.input_cgst += (parseFloat(vb.gst_amount) || 0) / 2;
-                m.input_sgst += (parseFloat(vb.gst_amount) || 0) / 2;
-            } else {
-                m.input_igst += parseFloat(vb.gst_amount) || 0;
-            }
-            m.input_total += parseFloat(vb.gst_amount) || 0;
-        }
-
-        for (const sb of (salesBills || [])) {
-            const month = sb.created_at.substring(0, 7);
-            if (!monthlyData[month]) {
-                monthlyData[month] = {
-                    month,
-                    input_cgst: 0, input_sgst: 0, input_igst: 0, input_total: 0,
-                    output_cgst: 0, output_sgst: 0, output_igst: 0, output_total: 0,
-                    purchase_total: 0, sales_total: 0,
-                };
-            }
-            const m = monthlyData[month];
-            const totalAmt = parseFloat(sb.total_amount) || 0;
-            const taxableValue = totalAmt / 1.05;
-            const gst = totalAmt - taxableValue;
-            m.sales_total += totalAmt;
-            m.output_cgst += gst / 2;
-            m.output_sgst += gst / 2;
-            m.output_total += gst;
-        }
-
-        const result = Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
-        res.json(result);
+        // Grouped by month in the database rather than by walking every row in JavaScript: a
+        // year of bills is one small answer instead of thousands of rows over the wire.
+        const rows = await many(
+            `with purchases as (
+               select to_char(b.bill_date, 'YYYY-MM') as month,
+                      sum(b.total_amount) as purchase_total,
+                      sum(case when b.is_local_transaction then coalesce(b.gst_amount, 0) / 2 else 0 end) as input_cgst,
+                      sum(case when b.is_local_transaction then coalesce(b.gst_amount, 0) / 2 else 0 end) as input_sgst,
+                      sum(case when b.is_local_transaction then 0 else coalesce(b.gst_amount, 0) end) as input_igst,
+                      sum(coalesce(b.gst_amount, 0)) as input_total
+                 from pos.vendor_bills b
+                where b.bill_date is not null
+                  and ($1::date is null or b.bill_date >= $1::date)
+                  and ($2::date is null or b.bill_date <= $2::date)
+                group by 1
+             ), sales as (
+               select to_char(b.created_at at time zone 'Asia/Kolkata', 'YYYY-MM') as month,
+                      sum(b.total_amount) as sales_total,
+                      sum(b.total_amount - b.total_amount / $3::numeric) as output_total
+                 from pos.bills b
+                where ($1::date is null or b.created_at >= ($1::date::timestamp at time zone 'Asia/Kolkata'))
+                  and ($2::date is null or b.created_at < (($2::date + 1)::timestamp at time zone 'Asia/Kolkata'))
+                group by 1
+             )
+             select coalesce(p.month, s.month) as month,
+                    round(coalesce(p.input_cgst, 0), 2) as input_cgst,
+                    round(coalesce(p.input_sgst, 0), 2) as input_sgst,
+                    round(coalesce(p.input_igst, 0), 2) as input_igst,
+                    round(coalesce(p.input_total, 0), 2) as input_total,
+                    round(coalesce(s.output_total, 0) / 2, 2) as output_cgst,
+                    round(coalesce(s.output_total, 0) / 2, 2) as output_sgst,
+                    0 as output_igst,
+                    round(coalesce(s.output_total, 0), 2) as output_total,
+                    round(coalesce(p.purchase_total, 0), 2) as purchase_total,
+                    round(coalesce(s.sales_total, 0), 2) as sales_total
+               from purchases p
+               full join sales s on s.month = p.month
+              order by 1`,
+            [startDate || null, endDate || null, GST_INCLUSIVE_DIVISOR],
+        );
+        res.json(rows);
     } catch (err) {
         console.error('Error fetching GST report:', err);
         res.status(500).json({ error: 'Failed to fetch GST report' });
@@ -1116,75 +1101,64 @@ app.get('/api/reports/profit-loss', authenticateToken, requireStaff, async (req,
     try {
         const { startDate, endDate } = req.query;
 
-        // Sales data
-        let salesQuery = supabase
-            .from('bills')
-            .select('created_at, total_amount, total_cost');
+        const months = await many(
+            `with sales as (
+               select to_char(b.created_at at time zone 'Asia/Kolkata', 'YYYY-MM') as month,
+                      -- The 5% is collected for the government, so it is not revenue.
+                      sum(b.total_amount / $3::numeric) as revenue,
+                      sum(coalesce(b.total_cost, 0)) as cogs
+                 from pos.bills b
+                where ($1::date is null or b.created_at >= ($1::date::timestamp at time zone 'Asia/Kolkata'))
+                  and ($2::date is null or b.created_at < (($2::date + 1)::timestamp at time zone 'Asia/Kolkata'))
+                group by 1
+             ), spend as (
+               -- Grouped by month and heading first, so each month has each heading once and
+               -- jsonb_object_agg cannot be handed the same key twice.
+               select e.month,
+                      sum(e.category_total) as expenses,
+                      jsonb_object_agg(e.category, e.category_total) as expense_breakdown
+                 from (select to_char(expense_date, 'YYYY-MM') as month, category, sum(amount) as category_total
+                         from pos.expenses
+                        where ($1::date is null or expense_date >= $1::date)
+                          and ($2::date is null or expense_date <= $2::date)
+                        group by 1, 2) e
+                group by 1
+             )
+             select coalesce(s.month, x.month) as month,
+                    round(coalesce(s.revenue, 0), 2) as revenue,
+                    round(coalesce(s.cogs, 0), 2) as cogs,
+                    round(coalesce(x.expenses, 0), 2) as expenses,
+                    coalesce(x.expense_breakdown, '{}'::jsonb) as expense_breakdown,
+                    round(coalesce(s.revenue, 0) - coalesce(s.cogs, 0), 2) as gross_profit,
+                    round(coalesce(s.revenue, 0) - coalesce(s.cogs, 0) - coalesce(x.expenses, 0), 2) as net_profit
+               from sales s
+               full join spend x on x.month = s.month
+              order by 1`,
+            [startDate || null, endDate || null, GST_INCLUSIVE_DIVISOR],
+        );
 
-        if (startDate) salesQuery = salesQuery.gte('created_at', startDate);
-        if (endDate) salesQuery = salesQuery.lte('created_at', endDate + 'T23:59:59');
-
-        const { data: sales, error: salesError } = await salesQuery;
-        if (salesError) throw salesError;
-
-        // Expenses data
-        let expQuery = supabase
-            .from('expenses')
-            .select('expense_date, category, amount');
-
-        if (startDate) expQuery = expQuery.gte('expense_date', startDate);
-        if (endDate) expQuery = expQuery.lte('expense_date', endDate);
-
-        const { data: expenses, error: expError } = await expQuery;
-        if (expError) throw expError;
-
-        // Aggregate by month
-        const monthlyData = {};
-
-        for (const sale of (sales || [])) {
-            const month = sale.created_at.substring(0, 7);
-            if (!monthlyData[month]) {
-                monthlyData[month] = { month, revenue: 0, cogs: 0, expenses: 0, expense_breakdown: {} };
-            }
-            // Bills are stored GST-inclusive (POS adds 5% on top of the tag price).
-            // That 5% is collected for the government, so revenue excludes it —
-            // the same split the GST report uses.
-            monthlyData[month].revenue += (parseFloat(sale.total_amount) || 0) / 1.05;
-            monthlyData[month].cogs += parseFloat(sale.total_cost) || 0;
-        }
-
-        for (const exp of (expenses || [])) {
-            const month = exp.expense_date.substring(0, 7);
-            if (!monthlyData[month]) {
-                monthlyData[month] = { month, revenue: 0, cogs: 0, expenses: 0, expense_breakdown: {} };
-            }
-            monthlyData[month].expenses += parseFloat(exp.amount) || 0;
-            const cat = exp.category;
-            monthlyData[month].expense_breakdown[cat] =
-                (monthlyData[month].expense_breakdown[cat] || 0) + (parseFloat(exp.amount) || 0);
-        }
-
-        const months = Object.values(monthlyData).sort((a, b) => a.month.localeCompare(b.month));
-
-        let totalRevenue = 0, totalCogs = 0, totalExpenses = 0;
+        // Postgres hands numeric back as a string so no paise are lost in transit; the screen
+        // charts these, so they become numbers here.
         for (const m of months) {
-            m.revenue = Math.round(m.revenue * 100) / 100; // paise, after the GST split
-            m.gross_profit = m.revenue - m.cogs;
-            m.net_profit = m.gross_profit - m.expenses;
-            totalRevenue += m.revenue;
-            totalCogs += m.cogs;
-            totalExpenses += m.expenses;
+            m.expense_breakdown = Object.fromEntries(
+                Object.entries(m.expense_breakdown || {}).map(([category, value]) => [category, Number(value)]),
+            );
         }
+
+        const sum = (field) => Math.round(months.reduce((total, m) => total + Number(m[field]), 0) * 100) / 100;
+        const revenue = sum('revenue');
+        const cogs = sum('cogs');
+        const expenses = sum('expenses');
 
         res.json({
             months,
             totals: {
-                revenue: totalRevenue,
-                cogs: totalCogs,
-                gross_profit: totalRevenue - totalCogs,
-                expenses: totalExpenses,
-                net_profit: totalRevenue - totalCogs - totalExpenses,
-            }
+                revenue,
+                cogs,
+                gross_profit: Math.round((revenue - cogs) * 100) / 100,
+                expenses,
+                net_profit: Math.round((revenue - cogs - expenses) * 100) / 100,
+            },
         });
     } catch (err) {
         console.error('Error fetching P&L report:', err);

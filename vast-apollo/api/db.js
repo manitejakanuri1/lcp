@@ -5,6 +5,13 @@
 // so the same pool serves either and nothing in the routes has to know which one it is.
 import pg from 'pg';
 
+// A DATE column (purchase_date, bill_date, expense_date) comes back as the plain
+// 'YYYY-MM-DD' it is stored as. Left alone, pg turns it into a JavaScript Date at this
+// machine's midnight, which JSON then writes in UTC: in India a bill dated 13 October
+// reaches the screens as "2026-10-12T18:30:00.000Z" and shows as the 12th. Supabase sent
+// these as strings too, so this also keeps the screens' date handling as it was.
+pg.types.setTypeParser(1082, (value) => value);
+
 const socket = process.env.INSTANCE_CONNECTION_NAME
     ? `/cloudsql/${process.env.INSTANCE_CONNECTION_NAME}`
     : null;
