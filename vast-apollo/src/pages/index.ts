@@ -1,5 +1,4 @@
 export { LoginPage } from './Login'
-export { RegisterPage } from './Register'
 export { Dashboard } from './Dashboard'
 export { Inventory } from './Inventory'
 export { POS } from './POS'

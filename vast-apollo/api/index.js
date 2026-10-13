@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import multer from 'multer';
 import sharp from 'sharp';
 import { many, one, tx, insertClause, setClause } from './db.js';
+import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
 
 // Load environment variables
 dotenv.config();
@@ -116,35 +117,23 @@ const authenticateToken = async (req, res, next) => {
     }
 
     try {
-        // Try JWT verification first (for cookie-based auth)
-        const verified = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = verified;
+        // The only token this API issues is its own, signed at login. There used to be a
+        // fallback that asked Supabase to validate the token instead; with passwords in
+        // Firebase and staff in store.staff_users that branch could only ever fail, and it
+        // hid real errors behind a second lookup.
+        req.user = jwt.verify(token, process.env.JWT_SECRET);
         next();
-    } catch (jwtErr) {
-        // If JWT verification fails, try Supabase token validation
-        try {
-            const { data: { user }, error } = await supabase.auth.getUser(token);
-
-            if (error || !user) {
-                return res.status(403).json({ error: 'Invalid token' });
-            }
-
-            // Look up role from profiles so requireFounder works with Supabase tokens
-            const { data: profile } = await supabase
-                .from('profiles')
-                .select('role, username')
-                .eq('id', user.id)
-                .single();
-
-            req.user = { id: user.id, email: user.email, role: profile?.role, username: profile?.username };
-            next();
-        } catch (supabaseErr) {
-            res.status(403).json({ error: 'Invalid token' });
-        }
+    } catch (err) {
+        return res.status(403).json({ error: 'Invalid token' });
     }
 };
 
-// Founder-only authorization middleware (must be used after authenticateToken)
+// The roles a staff row may carry. store.staff_users also allows the website's own roles
+// (merchandiser, editor, support), which the POS screens have no meaning for.
+const STAFF_ROLES = ['founder', 'accounting', 'salesman', 'admin'];
+// Staff who have no email of their own still need one for Firebase.
+const STAFF_EMAIL_DOMAIN = process.env.STAFF_EMAIL_DOMAIN || 'pos.lakshmisarees.in';
+
 const requireFounder = (req, res, next) => {
     if (req.user?.role !== 'founder') {
         return res.status(403).json({ error: 'Founder access required' });
@@ -174,58 +163,62 @@ const forRole = (req, product) => {
 // ================== AUTH ROUTES ==================
 
 // Login with username
+//
+// The screen still asks for a username. The password itself is checked by Firebase Auth, so
+// it is never stored in our database: the username finds the staff row, the row gives the
+// email, and Firebase says yes or no. The role always comes from the staff row, never from
+// anything the browser sent, so nobody can promote themselves by editing a request.
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { username, password } = req.body;
+        if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
 
-        // First, find the user by username
-        const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('username', username)
-            .single();
-
-        if (profileError || !profile) {
-            return res.status(401).json({ error: 'Invalid username or password' });
-        }
-
-        // Use the email from profile to authenticate
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: profile.email,
-            password
-        });
-
-        if (error) {
-            return res.status(401).json({ error: 'Invalid username or password' });
-        }
-
-        // Create JWT
-        const token = jwt.sign(
-            {
-                id: data.user.id,
-                email: data.user.email,
-                username: profile.username,
-                role: profile.role
-            },
-            process.env.JWT_SECRET,
-            { expiresIn: '7d' }
+        const staff = await one(
+            `select id, username, email, full_name, role, is_active, provider_uid
+               from store.staff_users where username = $1`,
+            [String(username).trim()],
         );
 
-        // Set HTTP-only cookie
+        // An unknown username and a wrong password answer the same way, so the login screen
+        // cannot be used to find out which staff names exist.
+        if (!staff || !staff.is_active) {
+            // Firebase is still asked on an unknown username so a wrong guess takes about as
+            // long either way.
+            await signIn(`${String(username).trim()}@unknown.invalid`, password).catch(() => {});
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        try {
+            await signIn(staff.email, password);
+        } catch (err) {
+            if (err.code === 'USER_DISABLED') return res.status(403).json({ error: 'This login has been switched off' });
+            if (err.code === 'TOO_MANY_ATTEMPTS') return res.status(429).json({ error: 'Too many tries. Wait a few minutes.' });
+            if (err.code === 'FIREBASE_NOT_CONFIGURED') {
+                console.error('FIREBASE_API_KEY is not set');
+                return res.status(500).json({ error: 'Login is not configured' });
+            }
+            return res.status(401).json({ error: 'Invalid username or password' });
+        }
+
+        const token = jwt.sign(
+            { id: staff.id, email: staff.email, username: staff.username, role: staff.role },
+            process.env.JWT_SECRET,
+            { expiresIn: '7d' },
+        );
+
         res.cookie('token', token, {
             httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: 'strict',
-            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+            maxAge: 7 * 24 * 60 * 60 * 1000,
         });
 
         res.json({
             user: {
-                id: data.user.id,
-                email: data.user.email,
-                username: profile.username,
-                ...profile
-            }
+                id: staff.id, email: staff.email, username: staff.username,
+                full_name: staff.full_name, role: staff.role,
+            },
+            token,
         });
     } catch (err) {
         console.error('Login error:', err);
@@ -233,46 +226,50 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// Register (founder only)
+// Register a staff member (founder only)
+//
+// The Firebase login and the staff row are made together, and if the row fails the login is
+// removed again - a login nobody can see in the Users screen would be a way in that the shop
+// does not know about.
 app.post('/api/auth/register', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { username, email, password, fullName, role } = req.body;
+        const name = String(username || '').trim();
+        if (!name || !password) return res.status(400).json({ error: 'Username and password are required' });
+        if (String(password).length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        if (role && !STAFF_ROLES.includes(role)) return res.status(400).json({ error: `Role must be one of: ${STAFF_ROLES.join(', ')}` });
 
-        // Check if username already exists
-        const { data: existingProfile } = await supabase
-            .from('profiles')
-            .select('username')
-            .eq('username', username)
-            .single();
+        const taken = await one('select 1 from store.staff_users where username = $1', [name]);
+        if (taken) return res.status(400).json({ error: 'Username already exists' });
 
-        if (existingProfile) {
-            return res.status(400).json({ error: 'Username already exists' });
+        // Staff without an email of their own still need one for Firebase, so the username
+        // becomes the local part of an address at the shop's own domain.
+        const loginEmail = String(email || '').trim() || `${name.toLowerCase()}@${STAFF_EMAIL_DOMAIN}`;
+
+        let uid;
+        try {
+            uid = await createLogin(loginEmail, password);
+        } catch (err) {
+            if (/EMAIL_EXISTS/.test(err.message)) return res.status(400).json({ error: 'That email already has a login' });
+            if (/WEAK_PASSWORD/.test(err.message)) return res.status(400).json({ error: 'Password is too weak' });
+            throw err;
         }
 
-        const { data, error } = await supabase.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: { full_name: fullName, role, username }
-        });
-
-        if (error) {
-            return res.status(400).json({ error: error.message });
+        try {
+            const staff = await one(
+                `insert into store.staff_users (id, provider, provider_uid, email, username, full_name, role, is_active, created_at, updated_at)
+                 values (gen_random_uuid(), 'firebase', $1, $2, $3, $4, $5, true, now(), now())
+                 returning id, username, email, full_name, role`,
+                [uid, loginEmail, name, String(fullName || name), role || 'salesman'],
+            );
+            res.status(201).json({ message: 'User created successfully', user: staff });
+        } catch (err) {
+            await deleteLogin(uid).catch(() => {});
+            throw err;
         }
-
-        // Create profile
-        await supabase.from('profiles').insert({
-            id: data.user.id,
-            email,
-            username,
-            full_name: fullName,
-            role: role || 'salesman'
-        });
-
-        res.json({ message: 'User created successfully', username });
     } catch (err) {
         console.error('Registration error:', err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: err.message || 'Server error' });
     }
 });
 
@@ -283,16 +280,23 @@ app.post('/api/auth/logout', (req, res) => {
 });
 
 // Get current user
+//
+// Read from the staff row every time rather than trusting the token: a role changed or a login
+// switched off this morning must take effect on the next page load, not in seven days when the
+// token expires.
 app.get('/api/auth/me', authenticateToken, async (req, res) => {
     try {
-        const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', req.user.id)
-            .single();
-
-        res.json({ user: { ...req.user, ...profile } });
+        const staff = await one(
+            'select id, username, email, full_name, role, is_active from store.staff_users where id = $1',
+            [req.user.id],
+        );
+        if (!staff || !staff.is_active) {
+            res.clearCookie('token');
+            return res.status(401).json({ error: 'This login is no longer active' });
+        }
+        res.json({ user: staff });
     } catch (err) {
+        console.error('Failed to read the signed-in user:', err);
         res.status(500).json({ error: 'Server error' });
     }
 });
@@ -845,14 +849,13 @@ app.delete('/api/vendor-bills/:id', authenticateToken, requireStaff, async (req,
 
 app.get('/api/users', authenticateToken, requireFounder, async (req, res) => {
     try {
-        const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.json(data);
+        const rows = await many(
+            `select id, username, email, full_name, role, is_active, created_at, updated_at
+               from store.staff_users order by created_at desc`,
+        );
+        res.json(rows);
     } catch (err) {
+        console.error('Failed to fetch users:', err);
         res.status(500).json({ error: 'Failed to fetch users' });
     }
 });
@@ -860,17 +863,21 @@ app.get('/api/users', authenticateToken, requireFounder, async (req, res) => {
 app.put('/api/users/:id/role', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { role } = req.body;
+        if (!STAFF_ROLES.includes(role)) return res.status(400).json({ error: `Role must be one of: ${STAFF_ROLES.join(', ')}` });
+        // The shop must keep a way in: the last founder cannot demote themselves out of it.
+        if (req.params.id === req.user.id && role !== 'founder') {
+            return res.status(400).json({ error: 'You cannot take the founder role away from yourself' });
+        }
 
-        const { data, error } = await supabase
-            .from('profiles')
-            .update({ role })
-            .eq('id', req.params.id)
-            .select()
-            .single();
-
-        if (error) throw error;
-        res.json(data);
+        const row = await one(
+            `update store.staff_users set role = $2, updated_at = now() where id = $1
+             returning id, username, email, full_name, role, is_active`,
+            [req.params.id, role],
+        );
+        if (!row) return res.status(404).json({ error: 'User not found' });
+        res.json(row);
     } catch (err) {
+        console.error('Failed to update user role:', err);
         res.status(500).json({ error: 'Failed to update user role' });
     }
 });
@@ -879,16 +886,19 @@ app.put('/api/users/:id/role', authenticateToken, requireFounder, async (req, re
 app.put('/api/users/:id/password', authenticateToken, requireFounder, async (req, res) => {
     try {
         const { password } = req.body;
-
-        if (!password || password.length < 6) {
+        if (!password || String(password).length < 6) {
             return res.status(400).json({ error: 'Password must be at least 6 characters' });
         }
 
-        const { error } = await supabase.auth.admin.updateUserById(req.params.id, {
-            password
-        });
+        // The Firebase login id is on the staff row; without this lookup a founder could post
+        // any id and change a password that is not a staff login at all.
+        const staff = await one(
+            "select provider_uid from store.staff_users where id = $1 and provider = 'firebase'",
+            [req.params.id],
+        );
+        if (!staff) return res.status(404).json({ error: 'User not found' });
 
-        if (error) throw error;
+        await setPassword(staff.provider_uid, String(password));
         res.json({ message: 'Password updated successfully' });
     } catch (err) {
         console.error('Error resetting password:', err);
@@ -896,25 +906,34 @@ app.put('/api/users/:id/password', authenticateToken, requireFounder, async (req
     }
 });
 
-// Update user profile (founder only)
+// Update user details (founder only)
 app.put('/api/users/:id', authenticateToken, requireFounder, async (req, res) => {
     try {
-        const { full_name, role } = req.body;
+        const { full_name, role, is_active } = req.body;
+        if (role !== undefined && !STAFF_ROLES.includes(role)) {
+            return res.status(400).json({ error: `Role must be one of: ${STAFF_ROLES.join(', ')}` });
+        }
+        if (req.params.id === req.user.id && (is_active === false || (role !== undefined && role !== 'founder'))) {
+            return res.status(400).json({ error: 'You cannot switch off or demote your own login' });
+        }
 
-        const updateData = {};
-        if (full_name !== undefined) updateData.full_name = full_name;
-        if (role !== undefined) updateData.role = role;
-        updateData.updated_at = new Date().toISOString();
+        const { keys, sql, values } = setClause({ full_name, role, is_active }, ['full_name', 'role', 'is_active']);
+        if (keys.length === 0) return res.status(400).json({ error: 'Nothing to update' });
 
-        const { data, error } = await supabase
-            .from('profiles')
-            .update(updateData)
-            .eq('id', req.params.id)
-            .select()
-            .single();
+        const row = await one(
+            `update store.staff_users set ${sql}, updated_at = now() where id = $1
+             returning id, username, email, full_name, role, is_active`,
+            [req.params.id, ...values],
+        );
+        if (!row) return res.status(404).json({ error: 'User not found' });
 
-        if (error) throw error;
-        res.json(data);
+        // A login switched off in the Users screen has to stop working at Google too, or the
+        // staff member could still sign in until their cookie expired.
+        if (is_active !== undefined) {
+            const staff = await one("select provider_uid from store.staff_users where id = $1 and provider = 'firebase'", [req.params.id]);
+            if (staff) await setDisabled(staff.provider_uid, !is_active).catch((err) => console.error('Could not change the Firebase login:', err.message));
+        }
+        res.json(row);
     } catch (err) {
         console.error('Error updating user:', err);
         res.status(500).json({ error: 'Failed to update user' });

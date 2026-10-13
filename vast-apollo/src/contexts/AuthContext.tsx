@@ -1,13 +1,32 @@
 /* eslint-disable react-refresh/only-export-components */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import type { User, Session } from '@supabase/supabase-js'
-import { supabase } from '../lib/supabase'
+import { authApi } from '../lib/api'
+import { clearToken, setToken } from '../lib/session'
 import type { Profile, UserRole } from '../types/database'
 
+/**
+ * Who is signed in.
+ *
+ * Sign-in used to happen in the browser against Supabase, which meant the screens held a
+ * Supabase session and read the staff row themselves. Both are gone: the API checks the
+ * password (through Firebase Auth) and answers with its own token, and the staff row comes
+ * from /auth/me. That removed the auth lock this file used to fight - the stalled getSession,
+ * the 10s and 12s timeouts and the "clear the stale session" rescue are all unnecessary now.
+ */
+export interface StaffUser {
+    id: string
+    username: string | null
+    email: string
+    full_name: string | null
+    role: UserRole
+    is_active?: boolean
+}
+
 interface AuthContextType {
-    user: User | null
+    user: StaffUser | null
     profile: Profile | null
-    session: Session | null
+    /** Kept so screens that only check "is somebody signed in" need no change. */
+    session: { user: StaffUser } | null
     role: UserRole | null
     isLoading: boolean
     isFounder: boolean
@@ -20,234 +39,77 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
-/**
- * Remove the stored Supabase session.
- *
- * supabase.auth.signOut() is no use here: it calls the server, and the whole reason
- * we are in this branch is that the auth client is stuck. Clearing the key directly
- * is what actually unsticks the next page load.
- */
-function purgeStoredSession() {
-    try {
-        Object.keys(localStorage)
-            .filter((k) => k.startsWith('sb-') && k.endsWith('-auth-token'))
-            .forEach((k) => localStorage.removeItem(k))
-        console.warn('[Auth] Cleared a stale session — please sign in again.')
-    } catch {
-        // Private-mode storage restrictions; nothing useful to do.
-    }
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(null)
-    const [profile, setProfile] = useState<Profile | null>(null)
-    const [session, setSession] = useState<Session | null>(null)
+    const [user, setUser] = useState<StaffUser | null>(null)
     const [isLoading, setIsLoading] = useState(true)
 
-    const role = profile?.role ?? null
+    const role = user?.role ?? null
     const isFounder = role === 'founder'
     const isSalesman = role === 'salesman'
     const isAccounting = role === 'accounting'
 
-    const fetchProfile = async (userId: string) => {
+    // The screens were written against a Supabase profile row; the staff row carries the same
+    // fields under the same names, so they need no change.
+    const profile = user ? ({ ...user } as unknown as Profile) : null
+
+    const loadMe = async () => {
         try {
-            console.log('Fetching profile for user:', userId)
-            // Bounded on purpose. This runs from onAuthStateChange, which is outside
-            // the mount effect's 5s safety timeout, so a request that never settles
-            // leaves isLoading true forever and the app sits on a spinner with no
-            // error. Failing after 8s at least lets the UI move on.
-            const { data, error } = await Promise.race([
-                supabase.from('profiles').select('*').eq('id', userId).single(),
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('profile fetch timeout')), 8000)
-                )
-            ])
-
-            if (error) {
-                console.error('Error fetching profile:', error)
-                // If profile doesn't exist, sign out the user
-                if (error.code === 'PGRST116') {
-                    console.error('Profile not found, signing out')
-                    await supabase.auth.signOut()
-                }
-                return null
-            }
-            console.log('Profile fetched:', data)
-            return data as Profile
-        } catch (err) {
-            console.error('Error in fetchProfile:', err)
+            const { user: me } = await authApi.getMe()
+            setUser(me as unknown as StaffUser)
+            return me as unknown as StaffUser
+        } catch {
+            // 401 means the token is gone, the role changed, or the login was switched off.
+            // api.ts has already cleared the token; there is nothing to rescue.
+            setUser(null)
             return null
-        }
-    }
-
-    const refreshProfile = async () => {
-        if (user) {
-            const profileData = await fetchProfile(user.id)
-            setProfile(profileData)
         }
     }
 
     useEffect(() => {
         let mounted = true
-
-        // Add timeout to prevent infinite loading
-        const timeout = setTimeout(() => {
-            if (mounted) {
-                console.warn('Auth loading timeout - forcing loading to false')
-                setIsLoading(false)
-            }
-        }, 12000) // outlasts the 10s getSession bound below
-
-        // Get initial session, bounded so a dead refresh token can't hang the app.
-        // 10s, not less: a token refresh over slow shop mobile data can take a few
-        // seconds, and hitting this timeout signs the user out.
-        const sessionPromise = supabase.auth.getSession()
-        const timeoutPromise = new Promise<never>((_, reject) =>
-            setTimeout(() => reject(new Error('getSession timeout')), 10000)
-        )
-
-        Promise.race([sessionPromise, timeoutPromise]).then(async ({ data: { session } }) => {
-            if (!mounted) return
-
-            setSession(session)
-            setUser(session?.user ?? null)
-
-            if (session?.user) {
-                const profileData = await fetchProfile(session.user.id)
-                if (mounted) {
-                    setProfile(profileData)
-                }
-            }
-
-            if (mounted) {
-                setIsLoading(false)
-                clearTimeout(timeout)
-            }
-        }).catch((err) => {
-            console.error('Error getting session:', err)
-            // getSession stalls when the stored refresh token is no longer accepted —
-            // after a password change, for instance. It keeps retrying and never settles,
-            // which leaves every signed-in request waiting on a token that will never
-            // arrive. Drop the dead session so the next load starts from a clean login
-            // instead of limping along with it.
-            if (err instanceof Error && err.message === 'getSession timeout') {
-                purgeStoredSession()
-            }
-            if (mounted) {
-                setIsLoading(false)
-                clearTimeout(timeout)
-            }
+        loadMe().finally(() => {
+            if (mounted) setIsLoading(false)
         })
-
-        // Listen for auth changes
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-            (_event, session) => {
-                if (!mounted) return
-
-                setSession(session)
-                setUser(session?.user ?? null)
-
-                // Supabase runs this callback while holding its auth lock. Awaiting
-                // another Supabase call in here (the profile fetch) waits on that same
-                // lock, so getSession() above stalled on every reload and the timeout
-                // below wiped a perfectly good login. Fetch once the lock is released.
-                setTimeout(async () => {
-                    if (!mounted) return
-                    if (session?.user) {
-                        const profileData = await fetchProfile(session.user.id)
-                        if (mounted) {
-                            setProfile(profileData)
-                        }
-                    } else {
-                        setProfile(null)
-                    }
-
-                    if (mounted) {
-                        setIsLoading(false)
-                    }
-                }, 0)
-            }
-        )
-
-        return () => {
-            mounted = false
-            clearTimeout(timeout)
-            subscription.unsubscribe()
-        }
+        return () => { mounted = false }
     }, [])
+
+    const refreshProfile = async () => {
+        await loadMe()
+    }
 
     const signIn = async (username: string, password: string) => {
         try {
-            // Supabase authenticates by email, so resolve the username first. This goes
-            // through get_login_email rather than reading profiles directly: the table is
-            // no longer readable before sign-in, because that exposed every staff email,
-            // name and role to anyone on the internet.
-            // This file's Database type is hand-maintained and doesn't match the shape
-            // supabase-js infers rpc arguments from, so it types them as `undefined`.
-            // The call is correct; the cast is only to get past that.
-            const { data: loginEmail, error: profileError } = (await (supabase.rpc as unknown as (
-                fn: string,
-                args: Record<string, unknown>
-            ) => Promise<{ data: string | null; error: { code?: string; message: string } | null }>)(
-                'get_login_email',
-                { p_username: username }
-            ))
-
-            // An error means the lookup itself failed (offline, stale cached build
-            // pointing at a bad URL, Supabase down). Calling that a wrong password sends
-            // people off resetting credentials that were never the problem.
-            if (profileError) {
-                console.error('[Auth] Username lookup failed:', profileError)
-                return {
-                    error: new Error("Can't reach the server. Check your internet, then fully close and reopen the app."),
-                    role: null
-                }
-            }
-
-            // No error and no email means the username simply doesn't exist.
-            if (!loginEmail) {
-                return { error: new Error('Invalid username or password'), role: null }
-            }
-
-            const { data: authData, error } = await supabase.auth.signInWithPassword({
-                email: loginEmail,
-                password
-            })
-            if (error || !authData.user) {
-                return { error: (error as Error) ?? new Error('Invalid username or password'), role: null }
-            }
-
-            // Read the role only now that we're signed in. Returning it from the
-            // pre-login lookup would put it back within reach of anyone who guessed a
-            // username, which is what this change set out to stop.
-            const { data: profileRow } = await supabase
-                .from('profiles')
-                .select('role')
-                .eq('id', authData.user.id)
-                .single<{ role: string }>()
-
-            return { error: null, role: profileRow?.role ?? null }
+            const result = await authApi.login(username, password)
+            if (result.token) setToken(result.token)
+            const me = (result.user ?? null) as StaffUser | null
+            setUser(me)
+            return { error: null, role: me?.role ?? null }
         } catch (err) {
-            // supabase-js throws rather than returning an error when fetch itself fails.
-            console.error('[Auth] Sign-in threw:', err)
+            const message = err instanceof Error ? err.message : 'Sign-in failed'
+            // A wrong password and an unreachable server are different problems, and telling
+            // somebody to reset a password that was never wrong wastes their evening.
+            const unreachable = /failed to fetch|network|aborted|timeout/i.test(message)
             return {
-                error: new Error("Can't reach the server. Check your internet, then fully close and reopen the app."),
-                role: null
+                error: new Error(unreachable
+                    ? "Can't reach the server. Check your internet, then fully close and reopen the app."
+                    : message),
+                role: null,
             }
         }
     }
 
     const signOut = async () => {
-        await supabase.auth.signOut()
+        // The cookie is the server's to clear; the token is ours. Clear ours even if the call
+        // fails, or a staff member could not sign out while the network is down.
+        await authApi.logout().catch(() => {})
+        clearToken()
         setUser(null)
-        setProfile(null)
-        setSession(null)
     }
 
     const value: AuthContextType = {
         user,
         profile,
-        session,
+        session: user ? { user } : null,
         role,
         isLoading,
         isFounder,
@@ -255,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isAccounting,
         signIn,
         signOut,
-        refreshProfile
+        refreshProfile,
     }
 
     return (

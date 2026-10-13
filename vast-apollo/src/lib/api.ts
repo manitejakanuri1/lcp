@@ -1,36 +1,18 @@
 // API Client - Calls backend server instead of Supabase directly
 // All sensitive keys stay on the server
 
-import { supabase } from './supabase'
+import { clearToken, getToken } from './session'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
 
-// Helper: get auth token with 3s timeout + localStorage fallback
-async function getAuthToken(): Promise<string | null> {
-    try {
-        const result = await Promise.race([
-            supabase.auth.getSession(),
-            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000))
-        ]);
-        return result.data.session?.access_token || null;
-    } catch {
-        // Fallback: read token directly from localStorage
-        try {
-            const key = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
-            if (key) {
-                const data = JSON.parse(localStorage.getItem(key) || '{}');
-                return data?.access_token || null;
-            }
-        } catch { /* ignore */ }
-        return null;
-    }
-}
-
+// The token the API handed back at sign-in. Reading it is synchronous now - the old
+// version asked Supabase for a session, raced it against a 3s timeout and then dug the
+// token out of localStorage by hand when that timed out, which it often did.
 async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
-    const token = await getAuthToken()
+    const token = getToken()
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
@@ -50,8 +32,9 @@ async function request<T>(
 
     // Auto sign-out on expired/invalid session
     if (response.status === 401) {
-        await supabase.auth.signOut()
-        window.location.href = '/login'
+        // The token has expired, or the login was switched off or had its role changed.
+        clearToken()
+        if (!window.location.pathname.startsWith('/login')) window.location.href = '/login'
         throw new Error('Session expired')
     }
 
@@ -67,7 +50,7 @@ async function request<T>(
 
 export const authApi = {
     login: async (username: string, password: string) => {
-        return request<{ user: User }>('/auth/login', {
+        return request<{ user: User; token?: string }>('/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password }),
         });
@@ -96,6 +79,7 @@ export const authApi = {
 export interface Product {
     id: string;
     sku: string;
+    barcode_no?: number;   // short numeric code the scanner reads
     vendor_name: string;
     hsn_code: string | null;
     purchase_date: string;
@@ -585,6 +569,7 @@ export const healthCheck = async () => {
 
 export interface ProductColor {
     id: string;
+    barcode_no?: number;
     color_name: string;
     sku: string | null;
     pieces: number;
@@ -595,6 +580,8 @@ export interface ProductColor {
 export interface WebsiteProduct {
     id: string;
     sku: string;
+    barcode_no?: number;
+    vendor_name?: string;   // only used to name the printed label file
     saree_name: string | null;
     saree_type: string | null;
     color: string | null;
@@ -619,11 +606,11 @@ export const websiteApi = {
             body: JSON.stringify(changes),
         }),
 
-    addColor: async (productId: string, colorName: string, pieces: number, file: File) => {
+    addColor: async (productId: string, colorName: string, pieces: number, file?: File | null) => {
         const formData = new FormData();
         formData.append('color_name', colorName);
         formData.append('pieces', String(pieces));
-        formData.append('photo', file);
+        if (file) formData.append('photo', file);
         const token = await getAuthToken();
         const response = await fetch(`${API_BASE}/website/products/${productId}/colors`, {
             method: 'POST',
@@ -636,6 +623,35 @@ export const websiteApi = {
             throw new Error(error.error || 'Upload failed');
         }
         return response.json() as Promise<ProductColor>;
+    },
+
+    setColorPhoto: async (colorId: string, file: File) => {
+        const formData = new FormData();
+        formData.append('photo', file);
+        const token = await getAuthToken();
+        const response = await fetch(`${API_BASE}/website/colors/${colorId}/photo`, {
+            method: 'PUT',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not save the photo');
+        return data as ProductColor;
+    },
+
+    // A vendor colour sheet comes back as plain pictures; nothing is saved yet.
+    splitSheet: async (file: File) => {
+        const formData = new FormData();
+        formData.append('photo', file);
+        const token = await getAuthToken();
+        const response = await fetch(`${API_BASE}/website/colors/split`, {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || 'Could not read that file');
+        return (data.photos || []) as string[];
     },
 
     removeColor: async (colorId: string) =>
