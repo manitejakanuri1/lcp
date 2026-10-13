@@ -8,6 +8,7 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { many, one, count, tx, insertClause, setClause } from './db.js';
 import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
+import { storePhoto, sweepFolder, storeBill, readBill, originalUrlFor } from './storage.js';
 
 // Load environment variables
 dotenv.config();
@@ -714,6 +715,8 @@ app.get('/api/analytics/daily-sales', authenticateToken, requireStaff, async (re
 const VENDOR_BILL_COLUMNS = [
     'company_name', 'bill_number', 'bill_date', 'vendor_gst_number', 'is_local_transaction',
     'subtotal', 'total_amount', 'gst_amount', 'cgst_rate', 'sgst_rate', 'igst_rate', 'notes',
+    // Where the photo of the paper bill is kept, so the figures can be checked against it later.
+    'bill_image_path',
 ];
 
 // Create a purchase bill together with the sarees that came in on it
@@ -1214,16 +1217,13 @@ app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.s
                 .toBuffer()
             : imageBuffer;
 
-        // 1. Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-            .from('bill-images')
-            .upload(fileName, storedBuffer, {
-                contentType: isImage ? 'image/webp' : mimeType,
-                cacheControl: '3600',
-            });
-
-        if (uploadError) {
-            console.error('Supabase storage error:', uploadError);
+        // 1. Keep the bill. Its own bucket, with public access switched off at the bucket
+        // level: a vendor's bill carries their GST number and often their bank details.
+        let storedPath;
+        try {
+            storedPath = await storeBill(fileName, storedBuffer, isImage ? 'image/webp' : mimeType);
+        } catch (uploadError) {
+            console.error('Could not store the bill:', uploadError);
             return res.status(500).json({ error: 'Failed to upload image to storage' });
         }
 
@@ -1323,7 +1323,7 @@ app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.s
         // 6. Return extracted data with storage reference
         res.json({
             success: true,
-            storage_path: uploadData.path,
+            storage_path: storedPath,
             extracted_data: validatedData,
             message: 'Bill data extracted successfully'
         });
@@ -1354,12 +1354,15 @@ app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.s
 // Get uploaded bill image URL (for preview)
 app.get('/api/inventory/bill-image/:path', authenticateToken, requireStaff, async (req, res) => {
     try {
-        const { data, error } = await supabase.storage
-            .from('bill-images')
-            .createSignedUrl(req.params.path, 3600); // 1 hour expiry
-
-        if (error) throw error;
-        res.json({ url: data.signedUrl });
+        // Streamed through this endpoint rather than handed out as a link. The bucket is
+        // private, and signing a link needs a service account, which a laptop signed in as a
+        // person does not have - so the same code would work in production and fail in
+        // development. An <img> tag sends the login cookie by itself, so this works in both.
+        const file = await readBill(req.params.path);
+        if (!file) return res.status(404).json({ error: 'Bill image not found' });
+        res.set('Content-Type', file.contentType);
+        res.set('Cache-Control', 'private, max-age=300');
+        res.send(file.buffer);
     } catch (error) {
         res.status(500).json({ error: 'Failed to get image URL' });
     }
@@ -1371,76 +1374,30 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, requireStaff, asyn
 
 app.post('/api/products/:id/photo', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
     try {
-        if (!req.file) {
-            return res.status(400).json({ error: 'No file uploaded' });
-        }
-
+        if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
         if (!req.file.mimetype.startsWith('image/')) {
             return res.status(400).json({ error: 'Only images can be used as product photos' });
         }
 
         const { id } = req.params;
+        const product = await one('select id from pos.products where id = $1', [id]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
 
-        const { data: product, error: productError } = await supabase
-            .from('products')
-            .select('id')
-            .eq('id', id)
-            .single();
+        // Stored twice - a small WebP for the screens and the website, and the untouched
+        // photo, because a squeezed picture cannot be un-squeezed later (api/storage.js).
+        const { url, stamp } = await storePhoto(`products/${id}`, req.file.buffer);
 
-        if (productError || !product) {
-            return res.status(404).json({ error: 'Product not found' });
-        }
+        const saved = await one(
+            'update pos.products set image_url = $2, updated_at = now() where id = $1 returning *',
+            [id, url],
+        );
 
-        // .rotate() honours EXIF orientation so phone photos aren't sideways.
-        // WebP q80 is 30-40% smaller than JPEG at no visible loss.
-        const imageBuffer = await sharp(req.file.buffer)
-            .rotate()
-            .resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
-            .webp({ quality: 80, effort: 6 })
-            .toBuffer();
+        // Each upload gets a fresh stamp, so replacing a photo would leave the old pair in the
+        // bucket for ever. Sweep once the new URL is safely saved; an orphan costs storage but
+        // does not break the saree, so a failure here is logged, not returned.
+        await sweepFolder(`products/${id}`, stamp).catch((err) => console.error('Stale photo cleanup failed:', err.message));
 
-        const photoName = `${Date.now()}.webp`;
-        const fileName = `${id}/${photoName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from('product-photos')
-            .upload(fileName, imageBuffer, {
-                contentType: 'image/webp',
-                cacheControl: '3600',
-                upsert: true,
-            });
-
-        if (uploadError) {
-            console.error('Supabase storage error:', uploadError);
-            return res.status(500).json({ error: 'Failed to upload photo to storage' });
-        }
-
-        const { data: publicUrl } = supabase.storage
-            .from('product-photos')
-            .getPublicUrl(fileName);
-
-        const { data, error } = await supabase
-            .from('products')
-            .update({ image_url: publicUrl.publicUrl })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Each upload gets a fresh timestamped name, so replacing a photo would otherwise
-        // leave the old file behind forever. Sweep them once the new URL is safely saved.
-        const { data: existing } = await supabase.storage.from('product-photos').list(id);
-        const stale = (existing || [])
-            .filter((f) => f.name !== photoName)
-            .map((f) => `${id}/${f.name}`);
-        if (stale.length) {
-            const { error: sweepError } = await supabase.storage.from('product-photos').remove(stale);
-            // Orphaned files cost storage but don't break the product, so don't fail the request.
-            if (sweepError) console.error('Stale photo cleanup failed:', sweepError);
-        }
-
-        res.json({ success: true, image_url: publicUrl.publicUrl, product: data });
+        res.json({ success: true, image_url: url, original_url: originalUrlFor(url), product: saved });
     } catch (error) {
         console.error('Product photo upload error:', error);
         res.status(500).json({ error: error.message || 'Failed to upload product photo' });
@@ -1450,25 +1407,15 @@ app.post('/api/products/:id/photo', authenticateToken, requireStaff, singlePhoto
 app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { id } = req.params;
+        const saved = await one(
+            'update pos.products set image_url = null, updated_at = now() where id = $1 returning *',
+            [id],
+        );
+        if (!saved) return res.status(404).json({ error: 'Product not found' });
 
-        const { data, error } = await supabase
-            .from('products')
-            .update({ image_url: null })
-            .eq('id', id)
-            .select()
-            .single();
-
-        if (error) throw error;
-
-        // Clear the bucket too, otherwise "Remove" only hides the photo and keeps paying for it.
-        const { data: existing } = await supabase.storage.from('product-photos').list(id);
-        if (existing?.length) {
-            const { error: removeError } = await supabase.storage
-                .from('product-photos')
-                .remove(existing.map((f) => `${id}/${f.name}`));
-            if (removeError) console.error('Photo file cleanup failed:', removeError);
-        }
-        res.json({ success: true, product: data });
+        // Clear the bucket too, or "Remove" only hides the photo and keeps paying for it.
+        await sweepFolder(`products/${id}`).catch((err) => console.error('Photo file cleanup failed:', err.message));
+        res.json({ success: true, product: saved });
     } catch (error) {
         console.error('Product photo delete error:', error);
         res.status(500).json({ error: 'Failed to remove product photo' });
@@ -1534,18 +1481,9 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
 
 // Add one colour with its photo (multipart: photo + color_name)
 const storeColourPhoto = async (productId, buffer) => {
-    const image = await sharp(buffer)
-        .rotate()
-        .resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
-        .webp({ quality: 80, effort: 6 })
-        .toBuffer();
-    // Separate prefix from the main photo, whose upload route sweeps its own folder.
-    const path = `colors/${productId}/${Date.now()}.webp`;
-    const { error } = await supabase.storage
-        .from('product-photos')
-        .upload(path, image, { contentType: 'image/webp', cacheControl: '3600' });
-    if (error) throw error;
-    return supabase.storage.from('product-photos').getPublicUrl(path).data.publicUrl;
+    // Its own folder, separate from the saree's main photo, whose upload sweeps its folder.
+    const { url } = await storePhoto(`colors/${productId}`, buffer);
+    return url;
 };
 
 app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, singlePhoto, async (req, res) => {

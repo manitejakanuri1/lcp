@@ -10,6 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google-cloud/storage": "^8.4.0",
     "@supabase/supabase-js": "^2.93.3",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.6",
