@@ -17,10 +17,14 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Configure multer for memory storage (file upload)
+const BILL_MAX_MB = 25;
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {
-        fileSize: 10 * 1024 * 1024, // 10MB limit
+        // A photo of a bill taken on a modern phone is routinely 15-25 MB, and the reader
+        // shrinks it to 2400 px before looking at it anyway. 10 MB rejected real bills; 25 MB
+        // still sits well under Cloud Run's 32 MB request limit.
+        fileSize: BILL_MAX_MB * 1024 * 1024,
     },
     fileFilter: (req, file, cb) => {
         const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
@@ -31,6 +35,19 @@ const upload = multer({
         }
     }
 });
+
+// Multer rejects (too large, wrong type) throw before the route body runs. Without this
+// wrapper Express answers with an HTML error page, which the screen cannot parse, so a 23 MB
+// bill photo showed up as a blank "upload failed" with no reason.
+const singleBill = (req, res, next) => {
+    upload.single('billImage')(req, res, (err) => {
+        if (!err) return next();
+        const message = err.code === 'LIMIT_FILE_SIZE'
+            ? `That bill photo is too large. Maximum is ${BILL_MAX_MB} MB - photograph it again at a lower quality, or crop it to the bill.`
+            : err.message || 'Upload failed';
+        res.status(400).json({ error: message });
+    });
+};
 
 // Product photos are image-only (no PDFs) and allow WEBP, which the bill uploader above
 // does not. Keeping them separate stops the two use cases from fighting over one filter.
@@ -1202,7 +1219,7 @@ const fromTesseract = (d) => ({
     }))
 });
 
-app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.single('billImage'), async (req, res) => {
+app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, singleBill, async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'No file uploaded' });

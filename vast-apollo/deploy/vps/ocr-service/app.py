@@ -23,7 +23,7 @@ app = FastAPI(
 )
 
 OCR_LANGS = os.getenv("OCR_LANGS", "eng+tel")
-MAX_UPLOAD = 10 * 1024 * 1024
+MAX_UPLOAD = int(os.getenv("MAX_UPLOAD_MB", "25")) * 1024 * 1024  # a phone photo of a bill is routinely 15-25 MB
 
 
 # ============================================================
