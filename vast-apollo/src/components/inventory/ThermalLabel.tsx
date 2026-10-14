@@ -12,12 +12,27 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         return
     }
 
+    const labelData = products.map((product) => ({
+        shop: shopName,
+        sku: product.sku,
+        bars: String(product.barcode_no || product.sku),
+        name: (product.saree_name || '').slice(0, 28),
+        mrp: 'Rs.' + product.selling_price_a.toLocaleString('en-IN'),
+        disc: 'Rs.' + product.selling_price_b.toLocaleString('en-IN'),
+        code: product.cost_code ? product.cost_code.toUpperCase() : '',
+    }))
+
+    const safe = (text: string) => text.trim().replace(/[\/:*?"<>|]/g, '').replace(/\s+/g, '-')
+    const fileName = [safe(products[0]?.saree_name || ''), safe(products[0]?.vendor_name || '')]
+        .filter(Boolean).join('-') || 'labels'
+
     const labelsHtml = products.map((product, index) => `
         <div class="label" id="label-${index}">
             <div class="shop-name">${shopName}</div>
             <div class="barcode-container">
                 <svg id="barcode-${index}"></svg>
             </div>
+            <div class="sku-text">${product.sku}</div>
             <div class="saree-name">${product.saree_name || ''}</div>
             <div class="prices">
                 <span class="price-mrp">MRP &#8377;${product.selling_price_a.toLocaleString('en-IN')}</span>
@@ -33,7 +48,6 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <head>
             <title>Thermal Labels</title>
             <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
-            <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"><\/script>
             <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><\/script>
             <style>
                 * {
@@ -56,7 +70,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 .label {
                     width: 50mm;
                     height: 30mm;
-                    padding: 1.5mm 2mm;
+                    padding: 1.5mm 2mm 5.5mm;
                     display: flex;
                     flex-direction: column;
                     align-items: center;
@@ -95,7 +109,17 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 .barcode-container svg {
                     max-width: 100%;
                     height: auto;
-                    max-height: 9mm;
+                    max-height: 8mm;
+                }
+
+                .sku-text {
+                    font-family: 'Courier New', Courier, monospace;
+                    font-size: 6.5pt;
+                    font-weight: bold;
+                    letter-spacing: 0.3px;
+                    text-align: center;
+                    width: 100%;
+                    line-height: 1;
                 }
 
                 .saree-name {
@@ -213,8 +237,35 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                         display: none !important;
                     }
 
+                    html, body {
+                        width: 50mm;
+                        height: auto;
+                        margin: 0;
+                        padding: 0;
+                    }
+
                     .labels-container {
                         display: block;
+                        margin: 0;
+                        padding: 0;
+                        gap: 0;
+                    }
+
+                    .label {
+                        width: 50mm;
+                        height: 29.6mm;
+                        margin: 0;
+                        border: 0;
+                        border-radius: 0;
+                        break-inside: avoid;
+                        page-break-inside: avoid;
+                        break-after: page;
+                        page-break-after: always;
+                    }
+
+                    .label:last-child {
+                        break-after: auto;
+                        page-break-after: auto;
                     }
                 }
             </style>
@@ -237,14 +288,12 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 window.onload = function() {
                     ${products.map((product, index) => `
                         try {
-                            JsBarcode("#barcode-${index}", "${product.sku}", {
+                            JsBarcode("#barcode-${index}", "${product.barcode_no || product.sku}", {
                                 format: "CODE128",
-                                width: 1.2,
+                                width: 2,
                                 height: 30,
-                                displayValue: true,
-                                fontSize: 8,
-                                margin: 0,
-                                textMargin: 1
+                                displayValue: false,
+                                margin: 0
                             });
                         } catch(e) {
                             console.error("Barcode error for ${product.sku}:", e);
@@ -252,38 +301,61 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     `).join('')}
                 };
 
+                var LABELS = ${JSON.stringify(labelData)};
+
+                // Draw each label straight into the PDF. Screenshotting 40 labels
+                // with html2canvas took minutes and looked stuck.
                 async function downloadPDF() {
                     var btn = document.getElementById('pdf-btn');
-                    btn.textContent = 'Generating...';
                     btn.disabled = true;
 
                     try {
-                        var { jsPDF } = window.jspdf;
-                        // 50mm x 30mm label size
+                        var jsPDF = window.jspdf.jsPDF;
+                        // 30 mm page, printing kept inside the top 26 mm of sticker face
                         var pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [30, 50] });
-                        var labels = document.querySelectorAll('.label');
-                        var scale = 4; // High resolution
+                        var canvas = document.createElement('canvas');
 
-                        for (var i = 0; i < labels.length; i++) {
+                        for (var i = 0; i < LABELS.length; i++) {
+                            btn.textContent = 'Generating ' + (i + 1) + '/' + LABELS.length;
+                            await new Promise(function(r) { setTimeout(r, 0); });
+
                             if (i > 0) pdf.addPage([30, 50], 'landscape');
+                            var L = LABELS[i];
 
-                            var canvas = await html2canvas(labels[i], {
-                                scale: scale,
-                                backgroundColor: '#ffffff',
-                                useCORS: true,
-                                logging: false,
-                                width: labels[i].offsetWidth,
-                                height: labels[i].offsetHeight
+                            pdf.setFont('helvetica', 'bold');
+                            pdf.setFontSize(6);
+                            pdf.text(L.shop, 25, 3, { align: 'center' });
+
+                            JsBarcode(canvas, L.bars, {
+                                format: 'CODE128', width: 2, height: 60,
+                                displayValue: false, margin: 0
                             });
+                            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 5, 4, 40, 7.5);
 
-                            var imgData = canvas.toDataURL('image/png');
-                            pdf.addImage(imgData, 'PNG', 0, 0, 50, 30);
+                            pdf.setFont('courier', 'bold');
+                            pdf.setFontSize(6.5);
+                            pdf.text(L.sku, 25, 13.8, { align: 'center' });
+
+                            pdf.setFont('helvetica', 'normal');
+                            pdf.setFontSize(6);
+                            pdf.text(L.name, 25, 17.3, { align: 'center' });
+
+                            pdf.setFont('helvetica', 'bold');
+                            pdf.setFontSize(8);
+                            pdf.text('MRP ' + L.mrp, 24, 21.4, { align: 'right' });
+                            pdf.text('DISC ' + L.disc, 26, 21.4, { align: 'left' });
+
+                            if (L.code) {
+                                pdf.setFont('courier', 'normal');
+                                pdf.setFontSize(5);
+                                pdf.text('Code: ' + L.code, 25, 24.6, { align: 'center' });
+                            }
                         }
 
-                        pdf.save('labels.pdf');
+                        pdf.save('${fileName}.pdf');
                     } catch(e) {
                         console.error('PDF generation error:', e);
-                        alert('Failed to generate PDF. Please try Print instead.');
+                        alert('Failed to generate PDF: ' + (e && e.message ? e.message : e) + '. Please try Print instead.');
                     }
 
                     btn.textContent = 'Download PDF';

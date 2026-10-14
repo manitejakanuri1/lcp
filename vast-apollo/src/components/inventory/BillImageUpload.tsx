@@ -79,8 +79,6 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                     errorMessage = '💾 Storage error. Check Supabase storage bucket configuration.';
                 } else if (err.message.includes('Failed to extract structured data')) {
                     errorMessage = '🤖 AI extraction failed. Try a clearer image or different bill.';
-                } else if (err.message.includes('GOOGLE_GEMINI_API_KEY') || err.message.includes('Gemini API')) {
-                    errorMessage = '🔑 API key missing. Contact administrator to configure Google Gemini API key.';
                 } else if (err.message.includes('Network') || err.message.includes('fetch') || err.name === 'TypeError') {
                     errorMessage = `🌐 Network error. API endpoint may be unavailable. Error: ${err.message}`;
                 } else {

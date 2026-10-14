@@ -6,6 +6,7 @@ import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
 import { useToast } from '../contexts/ToastContext'
 import { Globe, ImagePlus, Printer, Trash2 } from 'lucide-react'
 import { printThermalLabels } from '../components/inventory/ThermalLabel'
+import { useAuth } from '../contexts/AuthContext'
 import type { Product } from '../lib/api'
 
 // Suggestions only: any colour can be typed, and the server stores it in Title Case
@@ -105,6 +106,11 @@ export function Website() {
                                         <span className={`px-2 py-0.5 rounded-full ${p.product_colors.length ? 'bg-green-500/10 text-[var(--color-success-text)]' : 'bg-amber-500/10 text-amber-600'}`}>
                                             {p.product_colors.length} colour{p.product_colors.length === 1 ? '' : 's'}
                                         </span>
+                                        {p.product_colors.some((c) => !c.image_url) && (
+                                            <span className="px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600">
+                                                {p.product_colors.filter((c) => !c.image_url).length} without photo
+                                            </span>
+                                        )}
                                     </div>
                                 </div>
                             </button>
@@ -143,14 +149,25 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         return () => URL.revokeObjectURL(url)
     }, [colorFile])
     const [busy, setBusy] = useState(false)
+    // Pictures cut out of a vendor colour sheet, waiting to be named and kept
+    const [sheet, setSheet] = useState<{ url: string; name: string; pieces: string; keep: boolean; attachTo?: string }[]>([])
+    // One picture from the sheet can be the saree's main photo instead of a colour row.
+    const [sheetMain, setSheetMain] = useState<number | null>(null)
+    const sheetInput = useRef<HTMLInputElement>(null)
     const colorInput = useRef<HTMLInputElement>(null)
     const mainInput = useRef<HTMLInputElement>(null)
     // Gallery: index 0 = main photo, then each colour. A new colour jumps into view.
     const [shown, setShown] = useState(0)
     const [mainColor, setMainColor] = useState(product.color || '')
     const [mainPieces, setMainPieces] = useState(product.main_color_pieces ? String(product.main_color_pieces) : '')
+    const preview = sheetMain !== null ? sheet[sheetMain] : null
     const gallery = [
-        { key: 'main', url: product.image_url, name: product.color || 'Main photo', pieces: product.main_color_pieces || 0 },
+        {
+            key: 'main',
+            url: preview?.url || product.image_url,
+            name: preview ? (preview.name.trim() || 'Chosen main photo') : (product.color || 'Main photo'),
+            pieces: preview ? (parseInt(preview.pieces) || 0) : (product.main_color_pieces || 0),
+        },
         ...product.product_colors.map((c) => ({ key: c.id, url: c.image_url, name: c.color_name, pieces: c.pieces || 0 })),
     ]
     const current = gallery[Math.min(shown, gallery.length - 1)]
@@ -174,8 +191,8 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     }, 'Could not upload photo')
 
     const addColor = () => run(async () => {
-        if (!colorName.trim() || !colorFile) {
-            addToast('error', 'Choose a colour and a photo')
+        if (!colorName.trim()) {
+            addToast('error', 'Type a colour name')
             return
         }
         const color = await websiteApi.addColor(product.id, colorName, parseInt(colorPieces) || 0, colorFile)
@@ -186,6 +203,90 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         setColorFile(null)
         if (colorInput.current) colorInput.current.value = ''
     }, 'Could not add colour')
+
+    const loadSheet = (file: File) => run(async () => {
+        const photos = await websiteApi.splitSheet(file)
+        if (!photos.length) {
+            addToast('error', 'No pictures found in that file')
+            return
+        }
+        setSheet(photos.map((url) => ({ url, name: '', pieces: '', keep: true, attachTo: '' })))
+        setSheetMain(null)
+    }, 'Could not read that file')
+
+    const fileFrom = async (url: string, name: string) => {
+        const blob = await (await fetch(url)).blob()
+        return new File([blob], name, { type: 'image/jpeg' })
+    }
+
+    const saveSheet = () => run(async () => {
+        const main = sheetMain !== null ? sheet[sheetMain] : null
+        // The main photo is not also a colour row, or its pieces would be counted twice.
+        const attach = sheet.filter((p, i) => p.keep && p.attachTo && i !== sheetMain)
+        const chosen = sheet.filter((p, i) => p.keep && !p.attachTo && p.name.trim() && i !== sheetMain)
+        if (!chosen.length && !attach.length && !main) {
+            addToast('error', 'Tick a picture and type its colour')
+            return
+        }
+
+        let next = { ...product }
+
+        if (main) {
+            const res = await productsApi.uploadPhoto(product.id, await fileFrom(main.url, 'main.jpg'))
+            next = { ...next, image_url: res.product?.image_url ?? res.image_url }
+            if (main.name.trim() || main.pieces) {
+                const saved = await websiteApi.update(product.id, {
+                    color: main.name.trim(),
+                    main_color_pieces: parseInt(main.pieces) || 0,
+                })
+                next = { ...next, color: saved.color, main_color_pieces: saved.main_color_pieces }
+                setMainColor(saved.color || '')
+                setMainPieces(saved.main_color_pieces ? String(saved.main_color_pieces) : '')
+            }
+        }
+
+        let colours = [...product.product_colors]
+        for (const item of attach) {
+            const saved = await websiteApi.setColorPhoto(item.attachTo as string,
+                await fileFrom(item.url, 'colour.jpg'))
+            colours = colours.map((c) => c.id === saved.id ? { ...c, image_url: saved.image_url } : c)
+        }
+
+        const added = []
+        for (const [index, item] of chosen.entries()) {
+            const file = await fileFrom(item.url, `colour-${index + 1}.jpg`)
+            added.push(await websiteApi.addColor(product.id, item.name.trim(), parseInt(item.pieces) || 0, file))
+        }
+
+        onChange({ ...next, product_colors: [...colours, ...added] })
+        setSheet([])
+        setSheetMain(null)
+        addToast('success', [
+            main ? 'main photo set' : '',
+            added.length ? `${added.length} colour${added.length === 1 ? '' : 's'} added` : '',
+            attach.length ? `${attach.length} photo${attach.length === 1 ? '' : 's'} attached` : '',
+        ].filter(Boolean).join(', '))
+    }, 'Could not save the pictures')
+
+    // One hidden file box serves every colour that still needs a picture.
+    const lateInput = useRef<HTMLInputElement>(null)
+    const lateFor = useRef<string | null>(null)
+    const photoFor = useRef<(colorId: string) => void>(() => { })
+    photoFor.current = (colorId: string) => {
+        lateFor.current = colorId
+        lateInput.current?.click()
+    }
+
+    const attachPhoto = (file: File) => run(async () => {
+        const id = lateFor.current
+        if (!id) return
+        const saved = await websiteApi.setColorPhoto(id, file)
+        onChange({
+            ...product,
+            product_colors: product.product_colors.map((c) => c.id === id ? { ...c, image_url: saved.image_url } : c),
+        })
+        addToast('success', 'Photo saved')
+    }, 'Could not save the photo')
 
     const removeColor = (id: string) => run(async () => {
         await websiteApi.removeColor(id)
@@ -198,6 +299,9 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         onChange({ ...product, color: saved.color, main_color_pieces: saved.main_color_pieces })
         setMainColor(saved.color || '')
     }, 'Could not save main colour')
+
+    const { isSalesman } = useAuth()
+    const canEdit = !isSalesman
 
     const toggleWebsite = () => run(async () => {
         const on = !product.on_website
@@ -235,26 +339,35 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     </div>
                     <p className="text-sm font-medium text-[var(--color-text)]">
                         {current.name}{current.pieces ? ` · ${current.pieces} pcs` : ''}
+                        {preview && shown === 0 && (
+                            <span className="ml-2 px-2 py-0.5 rounded-full text-xs bg-amber-500/15 text-amber-600">
+                                not saved yet
+                            </span>
+                        )}
                     </p>
-                    <input ref={mainInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                        onChange={(e) => e.target.files?.[0] && changeMainPhoto(e.target.files[0])} />
-                    <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={() => mainInput.current?.click()}>
-                        {product.image_url ? 'Change main photo' : 'Add main photo'}
-                    </Button>
-                    {/* Colour of the main photo itself */}
-                    <div className="grid grid-cols-[1fr_5rem_auto] gap-2 items-end">
-                        <Input label="Main photo colour" list="color-suggestions" placeholder="e.g. Teal"
-                            value={mainColor} onChange={(e) => setMainColor(e.target.value)} />
-                        <Input label="Pieces" type="number" min="0" placeholder="0"
-                            value={mainPieces} onChange={(e) => setMainPieces(e.target.value)} />
-                        <Button type="button" variant="secondary" disabled={busy} onClick={saveMainColor}>Save</Button>
-                    </div>
+                    {canEdit && (
+                        <>
+                            <input ref={mainInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                                onChange={(e) => e.target.files?.[0] && changeMainPhoto(e.target.files[0])} />
+                            <Button type="button" variant="secondary" fullWidth disabled={busy} onClick={() => mainInput.current?.click()}>
+                                {product.image_url ? 'Change main photo' : 'Add main photo'}
+                            </Button>
+                            {/* Colour of the main photo itself */}
+                            <div className="grid grid-cols-[1fr_5rem_auto] gap-2 items-end">
+                                <Input label="Main photo colour" list="color-suggestions" placeholder="e.g. Teal"
+                                    value={mainColor} onChange={(e) => setMainColor(e.target.value)} />
+                                <Input label="Pieces" type="number" min="0" placeholder="0"
+                                    value={mainPieces} onChange={(e) => setMainPieces(e.target.value)} />
+                                <Button type="button" variant="secondary" disabled={busy} onClick={saveMainColor}>Save</Button>
+                            </div>
+                        </>
+                    )}
                     <p className="text-xs text-[var(--color-text-muted)] font-mono">{product.sku} · {product.quantity} in stock · ₹{product.selling_price_b || product.selling_price_a}</p>
                 </div>
 
                 <div className="space-y-6">
                     {/* Category */}
-                    <div>
+                    <div className={canEdit ? '' : 'hidden'}>
                         <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">Website Category</label>
                         <select
                             value={product.saree_type || ''}
@@ -282,13 +395,14 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                             <Button type="button" variant="secondary" onClick={() => printThermalLabels(
                                 // The main photo colour has no colour row: it uses the saree's own barcode.
                                 [
-                                    { sku: product.sku, color_name: product.color || '', pieces: product.main_color_pieces || 0 },
-                                    ...product.product_colors.filter((c) => c.sku).map((c) => ({ sku: c.sku as string, color_name: c.color_name, pieces: c.pieces || 0 })),
+                                    { sku: product.sku, barcode_no: product.barcode_no, color_name: product.color || '', pieces: product.main_color_pieces || 0 },
+                                    ...product.product_colors.filter((c) => c.sku).map((c) => ({ sku: c.sku as string, barcode_no: c.barcode_no, color_name: c.color_name, pieces: c.pieces || 0 })),
                                 ].filter((c) => c.pieces > 0).flatMap((c) => Array.from(
                                     { length: c.pieces },
                                     () => ({
                                         ...(product as unknown as Product),
                                         sku: c.sku,
+                                        barcode_no: c.barcode_no,
                                         saree_name: `${product.saree_name || ''} ${c.color_name}`.trim(),
                                     })
                                 ))
@@ -303,26 +417,130 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 {product.product_colors.map((c) => (
                                     <div key={c.id} className="border border-[var(--color-border)] rounded-xl overflow-hidden bg-[var(--color-surface-elevated)]">
                                         <div className="aspect-[3/4] bg-[var(--color-surface)]">
-                                            {c.image_url && <img src={c.image_url} alt={c.color_name} className="w-full h-full object-cover" />}
+                                            {c.image_url ? (
+                                                <img src={c.image_url} alt={c.color_name} className="w-full h-full object-cover" />
+                                            ) : canEdit ? (
+                                                <button type="button" disabled={busy}
+                                                    onClick={() => photoFor.current?.(c.id)}
+                                                    className="w-full h-full flex flex-col items-center justify-center gap-1 text-xs text-[var(--color-text-muted)] border-2 border-dashed border-[var(--color-border)] rounded-xl hover:border-[var(--color-primary)]">
+                                                    <ImagePlus className="w-6 h-6" />
+                                                    Add photo
+                                                </button>
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center text-xs text-[var(--color-text-muted)]">
+                                                    No photo yet
+                                                </div>
+                                            )}
                                         </div>
                                         <div className="flex items-center justify-between px-3 py-2">
                                             <span className="text-sm font-medium text-[var(--color-text)] truncate">
                                                 {c.color_name}{c.pieces ? ` · ${c.pieces} pcs` : ''}
                                                 {c.sku && <span className="block font-mono text-xs text-[var(--color-text-muted)]">{c.sku}</span>}
                                             </span>
-                                            <button type="button" title="Remove colour" disabled={busy}
-                                                onClick={() => removeColor(c.id)}
-                                                className="p-1 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
+                                            {canEdit && (
+                                                <button type="button" title="Remove colour" disabled={busy}
+                                                    onClick={() => removeColor(c.id)}
+                                                    className="p-1 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded">
+                                                    <Trash2 className="w-4 h-4" />
+                                                </button>
+                                            )}
                                         </div>
                                     </div>
                                 ))}
                             </div>
                         )}
 
+                        <input ref={lateInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+                            onChange={(e) => {
+                                const file = e.target.files?.[0]
+                                if (file) attachPhoto(file)
+                                if (lateInput.current) lateInput.current.value = ''
+                            }} />
+
+                        {/* Colours from a vendor sheet */}
+                        {canEdit && (
+                            <div className="mb-4">
+                                <input ref={sheetInput} type="file" accept="application/pdf,image/jpeg,image/png,image/webp"
+                                    className="hidden"
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0]
+                                        if (file) loadSheet(file)
+                                        if (sheetInput.current) sheetInput.current.value = ''
+                                    }} />
+                                <Button type="button" variant="secondary" disabled={busy}
+                                    onClick={() => sheetInput.current?.click()}>
+                                    <ImagePlus className="w-4 h-4 mr-2" />
+                                    Add colours from PDF
+                                </Button>
+
+                                {sheet.length > 0 && (
+                                    <div className="mt-3 p-4 border border-[var(--color-border)] rounded-xl">
+                                        <p className="text-sm text-[var(--color-text-muted)] mb-3">
+                                            {sheet.length} picture{sheet.length === 1 ? '' : 's'} found. Type a colour for each one you want to keep,
+                                            and mark one as the main photo if you like.
+                                        </p>
+                                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                                            {sheet.map((item, i) => (
+                                                <div key={i} className={`border rounded-xl overflow-hidden ${item.keep ? 'border-[var(--color-primary)]' : 'border-[var(--color-border)] opacity-60'}`}>
+                                                    <button type="button" className="block w-full aspect-[3/4] bg-[var(--color-surface)]"
+                                                        onClick={() => setSheet(sheet.map((p, j) => j === i ? { ...p, keep: !p.keep } : p))}>
+                                                        <img src={item.url} alt={`Picture ${i + 1}`} className="w-full h-full object-cover" />
+                                                    </button>
+                                                    <div className="p-2 space-y-2">
+                                                        <input list="color-suggestions" placeholder="Colour" value={item.name}
+                                                            onChange={(e) => {
+                                                                setSheet(sheet.map((p, j) => j === i ? { ...p, name: e.target.value, keep: true } : p))
+                                                                if (sheetMain === i) setMainColor(e.target.value)
+                                                            }}
+                                                            className="w-full px-2 py-1.5 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]" />
+                                                        <input type="number" min="0" placeholder="Pieces" value={item.pieces}
+                                                            onChange={(e) => {
+                                                                setSheet(sheet.map((p, j) => j === i ? { ...p, pieces: e.target.value } : p))
+                                                                if (sheetMain === i) setMainPieces(e.target.value)
+                                                            }}
+                                                            className="w-full px-2 py-1.5 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]" />
+                                                        {product.product_colors.some((c) => !c.image_url) && (
+                                                            <select value={item.attachTo || ''}
+                                                                onChange={(e) => setSheet(sheet.map((p, j) => j === i ? { ...p, attachTo: e.target.value } : p))}
+                                                                className="w-full px-2 py-1.5 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]">
+                                                                <option value="">New colour</option>
+                                                                {product.product_colors.filter((c) => !c.image_url).map((c) => (
+                                                                    <option key={c.id} value={c.id}>Photo for {c.color_name}</option>
+                                                                ))}
+                                                            </select>
+                                                        )}
+                                                        <label className="flex items-center gap-2 text-xs text-[var(--color-text)]">
+                                                            <input type="radio" name="sheet-main" checked={sheetMain === i}
+                                                                onChange={() => {
+                                                                    const next = sheetMain === i ? null : i
+                                                                    setSheetMain(next)
+                                                                    setShown(0)
+                                                                    if (next !== null) {
+                                                                        setMainColor(sheet[next].name.trim())
+                                                                        setMainPieces(sheet[next].pieces)
+                                                                    }
+                                                                }} />
+                                                            Main photo
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="flex gap-2 mt-3">
+                                            <Button type="button" variant="primary" disabled={busy} onClick={saveSheet}>
+                                                Save ticked pictures
+                                            </Button>
+                                            <Button type="button" variant="secondary" disabled={busy} onClick={() => setSheet([])}>
+                                                Cancel
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
                         {/* Add a colour */}
-                        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end p-4 border border-dashed border-[var(--color-border)] rounded-xl">
+                        <div className={`grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto] gap-3 items-end p-4 border border-dashed border-[var(--color-border)] rounded-xl ${canEdit ? '' : 'hidden'}`}>
                             <Input
                                 label="Colour"
                                 list="color-suggestions"
@@ -343,7 +561,9 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 onChange={(e) => setColorPieces(e.target.value)}
                             />
                             <div>
-                                <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">Photo of this colour</label>
+                                <label className="block text-sm font-medium text-[var(--color-text)] mb-1.5">
+                                    Photo of this colour <span className="text-[var(--color-text-muted)]">(can wait)</span>
+                                </label>
                                 <input ref={colorInput} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
                                     onChange={(e) => setColorFile(e.target.files?.[0] || null)} />
                                 {/* Show the picked photo itself, not its file name */}
@@ -370,7 +590,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     </div>
 
                     {/* Publish */}
-                    <div className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30">
+                    <div className={`flex flex-wrap items-center justify-between gap-3 p-4 rounded-xl bg-indigo-500/10 border border-indigo-500/30 ${canEdit ? '' : 'hidden'}`}>
                         <div className="flex items-center gap-2 text-[var(--color-text)]">
                             <Globe className="w-5 h-5" />
                             <span className="font-medium">{product.on_website ? 'Showing on the website' : 'Not on the website yet'}</span>

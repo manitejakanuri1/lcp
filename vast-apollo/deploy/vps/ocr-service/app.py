@@ -796,6 +796,25 @@ def _ai_key():
     return os.getenv("DEEPSEEK_API_KEY") or None
 
 
+AI_MAX_SIDE = int(os.getenv("AI_MAX_SIDE", "2400"))
+
+
+def ai_jpeg(image):
+    """JPEG small enough for the vision API: a 250 dpi scan is far bigger than
+    it can take, and an oversized picture comes back as 400 Bad Request."""
+    height, width = image.shape[:2]
+    scale = AI_MAX_SIDE / max(height, width)
+
+    if scale < 1:
+        image = cv2.resize(
+            image,
+            (int(width * scale), int(height * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    return cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes()
+
+
 def ai_invoice(data: bytes, mime: str):
     """Invoice read by the vision model, or None when it is unavailable."""
     key = _ai_key()
@@ -988,6 +1007,111 @@ def health():
     }
 
 
+SPLIT_MIN_AREA = 0.02      # a photo smaller than 2% of the page is noise
+SPLIT_MAX_PHOTOS = 30
+
+
+def photo_blocks(page):
+    """Cut a catalogue page into its separate photos.
+
+    The sheets are photos printed on white paper, so anything clearly darker
+    than the paper is treated as a picture, and each blob becomes one crop.
+    """
+    height, width = page.shape[:2]
+    gray = cv2.cvtColor(page, cv2.COLOR_BGR2GRAY)
+
+    ink = cv2.threshold(
+        cv2.GaussianBlur(gray, (5, 5), 0),
+        0,
+        255,
+        cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
+    )[1]
+
+    # Close the gaps inside a photo so it comes out as one blob, not many.
+    step = max(8, int(min(height, width) * 0.02))
+    ink = cv2.morphologyEx(
+        ink,
+        cv2.MORPH_CLOSE,
+        cv2.getStructuringElement(cv2.MORPH_RECT, (step, step)),
+    )
+
+    boxes = []
+
+    for contour in cv2.findContours(ink, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]:
+        x, y, w, h = cv2.boundingRect(contour)
+
+        if w * h < SPLIT_MIN_AREA * height * width:
+            continue
+
+        if w < width * 0.08 or h < height * 0.05:
+            continue
+
+        boxes.append((x, y, w, h))
+
+    # Reading order: top to bottom, then left to right within a row.
+    row = max(20, int(height * 0.05))
+    boxes.sort(key=lambda b: (b[1] // row, b[0]))
+
+    crops = [page[y:y + h, x:x + w] for x, y, w, h in boxes]
+
+    # A full-page photo has nothing to cut, so keep the page itself.
+    return crops or [page]
+
+
+def crop_jpeg(image):
+    """One crop, small enough to send to a browser."""
+    height, width = image.shape[:2]
+    scale = 1200 / max(height, width)
+
+    if scale < 1:
+        image = cv2.resize(
+            image,
+            (int(width * scale), int(height * scale)),
+            interpolation=cv2.INTER_AREA,
+        )
+
+    return cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+
+
+@app.post("/split")
+async def split(file: UploadFile = File(...)):
+    """A colour sheet (PDF or photo) split into one picture per colour."""
+    data = await file.read()
+
+    if not data:
+        raise HTTPException(400, "Empty file")
+
+    if len(data) > MAX_UPLOAD:
+        raise HTTPException(413, "Maximum file size is 10MB")
+
+    content_type = (file.content_type or "").lower()
+
+    try:
+        pages = (
+            pdf_images(data)
+            if content_type == "application/pdf"
+            else [decode_image(data)]
+        )
+    except Exception as exc:
+        raise HTTPException(400, "Could not read the file: %s" % str(exc)[:120])
+
+    photos = []
+
+    for page in pages:
+        for crop in photo_blocks(page):
+            photos.append(
+                "data:image/jpeg;base64," + base64.b64encode(crop_jpeg(crop)).decode()
+            )
+
+            if len(photos) >= SPLIT_MAX_PHOTOS:
+                break
+
+        if len(photos) >= SPLIT_MAX_PHOTOS:
+            break
+
+    return {"success": True, "photos": photos}
+
+
 @app.post("/ocr")
 async def ocr_bill(
     file: UploadFile = File(...)
@@ -1014,20 +1138,19 @@ async def ocr_bill(
         # The vision model takes images, so a PDF bill is rendered first.
         try:
             if content_type.startswith("image/"):
-                by_ai = ai_invoice(data, content_type)
+                # Phones label photos in ways the vision API refuses (HEIC and
+                # friends), so the picture always goes out re-encoded as JPEG.
+                by_ai = ai_invoice(ai_jpeg(decode_image(data)), "image/jpeg")
             elif content_type == "application/pdf":
                 page = pdf_images(data)[:1]
-                by_ai = ai_invoice(
-                    cv2.imencode(".jpg", page[0], [cv2.IMWRITE_JPEG_QUALITY, 90])[1].tobytes(),
-                    "image/jpeg",
-                ) if page else None
+                by_ai = ai_invoice(ai_jpeg(page[0]), "image/jpeg") if page else None
             else:
                 by_ai = None
 
             if by_ai:
                 return {"success": True, "extracted_data": by_ai}
         except Exception as exc:
-            print("AI reader unavailable, using Tesseract:", str(exc)[:200])
+            print("AI reader unavailable, using Tesseract:", content_type, str(exc)[:200])
 
         if (
             content_type ==

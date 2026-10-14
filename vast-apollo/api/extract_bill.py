@@ -1,6 +1,6 @@
 """Offline bill extraction — reads a GST purchase invoice with no external API.
 
-Replaces the Gemini Vision call in index.js. RapidOCR reads the text and the
+RapidOCR reads the text and the
 geometry below rebuilds the line-item table from the position of each detected
 box, so the result maps onto the same JSON shape index.js already validates and
 nothing downstream changes.
