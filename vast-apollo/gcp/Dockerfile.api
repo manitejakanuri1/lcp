@@ -13,6 +13,10 @@ RUN npm install --omit=dev --no-audit --no-fund
 
 COPY api/index.js api/db.js api/firebase.js api/storage.js api/ocr.js ./
 
+# The built screens ride along in the same image and are served by the same service, so the
+# shop has one address and the login cookie is same-site by construction.
+COPY dist ./public
+
 # Cloud Run hands the port in; 8080 is only the local default.
 ENV NODE_ENV=production PORT=8080
 

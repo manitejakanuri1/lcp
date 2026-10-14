@@ -99,14 +99,29 @@ const singlePhotoAny = (req, res, next) => {
     });
 };
 
+// Cloud Run terminates TLS and forwards the request, so without this every caller looks
+// like the proxy: req.ip would be the same address for the whole shop and the per-address
+// login limit below would lock everyone out together.
+app.set('trust proxy', 1);
+
+// Which sites may call this API from a browser. The screens are served by this same service,
+// so they are same-origin and need no entry here; the list exists for a separate front end
+// during development. It used to reflect back whatever Origin was sent, which with
+// credentials:true means any website a staff member visited could call this API in their
+// name while they were signed in.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+    .split(',').map((o) => o.trim()).filter(Boolean);
+
 // CORS must come BEFORE helmet to handle preflight OPTIONS correctly on mobile
 app.use(cors({
-    origin: function (origin, callback) {
-        // Allow requests with no origin (like mobile apps or curl requests)
+    origin(origin, callback) {
+        // No Origin header at all: a same-origin page load, curl, or the label app. The
+        // browser rule being enforced here only applies to cross-site calls.
         if (!origin) return callback(null, true);
-        callback(null, true);
+        if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+        callback(null, false);
     },
-    credentials: true
+    credentials: true,
 }));
 
 // Security middleware â€” configured to not break CORS preflight
@@ -120,6 +135,8 @@ app.use(cookieParser());
 
 // JWT middleware
 import jwt from 'jsonwebtoken';
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 
 const authenticateToken = async (req, res, next) => {
     const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
@@ -187,6 +204,24 @@ app.post('/api/auth/login', async (req, res) => {
     try {
         const { username, password } = req.body;
         if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
+
+        // Guessing passwords has to get slow. The count lives in the database
+        // (store.hit_rate_limit), not in this instance's memory, so it holds across every
+        // copy of the service Cloud Run starts. Two buckets: one for the name being tried,
+        // so one account cannot be ground down, and one for the address trying, so a single
+        // attacker cannot work through a list of names. The shop itself never hits these -
+        // a staff member typing their own password wrong ten times in fifteen minutes is
+        // already having a different kind of problem.
+        const name = String(username).trim().toLowerCase();
+        const from = createHash('sha256').update(req.ip || 'unknown').digest('hex').slice(0, 32);
+        const [nameOk, ipOk] = await Promise.all([
+            one('select store.hit_rate_limit($1, $2, $3) as ok', [`login:user:${name}`, 900, 10]),
+            one('select store.hit_rate_limit($1, $2, $3) as ok', [`login:ip:${from}`, 900, 50]),
+        ]);
+        if (!nameOk?.ok || !ipOk?.ok) {
+            console.warn('login throttled', { bucket: nameOk?.ok ? 'ip' : 'user' });
+            return res.status(429).json({ error: 'Too many sign-in attempts. Wait a few minutes and try again.' });
+        }
 
         const staff = await one(
             `select id, username, email, full_name, role, is_active, provider_uid
@@ -1648,6 +1683,31 @@ app.delete('/api/website/colors/:id', authenticateToken, requireStaff, async (re
         res.status(500).json({ error: 'Failed to remove colour' });
     }
 });
+
+// ================== THE SCREENS ==================
+// The built screens are served by this same service, so the shop has one address and the
+// session cookie is same-site by construction: no CORS, no third-party cookie rules, and
+// nothing to go wrong between two separate deployments.
+const SCREENS = process.env.SCREENS_DIR || './public';
+if (existsSync(SCREENS)) {
+    // Hashed asset names are safe to cache for a year; index.html must not be, or a phone
+    // keeps running last week's screens after a deploy.
+    app.use(express.static(SCREENS, {
+        index: false,
+        setHeaders(res, filePath) {
+            res.setHeader('Cache-Control', /[.-][0-9a-f]{8,}\.[a-z]+$/i.test(filePath)
+                ? 'public, max-age=31536000, immutable'
+                : 'no-cache');
+        },
+    }));
+
+    // Anything that is not an API call is a screen: React Router decides what it means, so
+    // a reload on /inventory must return the app rather than a 404.
+    app.get(/^(?!\/api\/).*/, (req, res, next) => {
+        if (req.method !== 'GET') return next();
+        res.sendFile('index.html', { root: SCREENS, headers: { 'Cache-Control': 'no-cache' } });
+    });
+}
 
 // Health check
 app.get('/api/health', (req, res) => {
