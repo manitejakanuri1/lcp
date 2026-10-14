@@ -447,6 +447,17 @@ app.delete('/api/products/:id', authenticateToken, requireStaff, async (req, res
             return rowCount;
         });
         if (!deleted) return res.status(404).json({ error: 'Product not found' });
+
+        // Its pictures go too. Deleting the row alone left the saree's own photo pair and
+        // every colour's pair in the bucket for ever: invisible, unreachable and still paid
+        // for. Both folders are swept - the colour rows themselves cascade with the saree, so
+        // nothing is left pointing at them. A sweep failure is logged, not returned: the
+        // saree is already gone and the caller should not see an error for it.
+        await Promise.all([
+            sweepFolder(`products/${req.params.id}`),
+            sweepFolder(`colors/${req.params.id}`),
+        ]).catch((err) => console.error('Photo cleanup after deleting a saree failed:', err.message));
+
         res.json({ message: 'Product deleted' });
     } catch (err) {
         console.error('Failed to delete product:', err);
@@ -1629,11 +1640,20 @@ app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Start server only if not in Vercel environment
-if (process.env.NODE_ENV !== 'production') {
-    app.listen(PORT, () => {
-        console.log(`ðŸš€ Server running on http://localhost:${PORT}`);
-        console.log(`ðŸ“¦ API ready at http://localhost:${PORT}/api`);
+// Listen always. The old condition skipped listen() when NODE_ENV was production, which
+// suited Vercel's serverless wrapper but means a container exits as unhealthy on Cloud Run,
+// where the process itself must bind the port Cloud Run hands it.
+const server = app.listen(PORT, () => {
+    console.log(`API listening on ${PORT}`);
+});
+
+// Cloud Run sends SIGTERM before it stops an instance; finishing the bill that is already
+// in flight is the difference between a saved sale and a confused customer.
+for (const signal of ['SIGTERM', 'SIGINT']) {
+    process.on(signal, () => {
+        console.log(`${signal} received, finishing current requests`);
+        server.close(() => process.exit(0));
+        setTimeout(() => process.exit(0), 10_000).unref();
     });
 }
 

@@ -1,0 +1,15 @@
+# Build the POS API image. Kept as a config file rather than a bare --tag build so the
+# Dockerfile can live under gcp/ instead of the repository root.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - gcp/Dockerfile.api
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY

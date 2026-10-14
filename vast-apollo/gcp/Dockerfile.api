@@ -1,0 +1,23 @@
+# The POS API for Cloud Run.
+#
+# Only api/ goes in - the screens are a separate static build, and shipping the React source
+# or node_modules into this image would mean a bigger attack surface and a slower cold start
+# for no gain. api/package.json lists exactly what api/*.js imports.
+FROM node:22-slim
+
+# sharp needs no build tools on this platform (prebuilt binaries), so nothing else is added.
+WORKDIR /app
+
+COPY api/package.json ./package.json
+RUN npm install --omit=dev --no-audit --no-fund
+
+COPY api/index.js api/db.js api/firebase.js api/storage.js ./
+
+# Cloud Run hands the port in; 8080 is only the local default.
+ENV NODE_ENV=production PORT=8080
+
+# Run as a non-root user: a flaw in a dependency then cannot write over the app itself.
+USER node
+EXPOSE 8080
+
+CMD ["node", "index.js"]
