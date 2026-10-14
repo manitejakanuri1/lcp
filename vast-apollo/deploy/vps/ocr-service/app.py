@@ -281,7 +281,13 @@ def run_ocr(image):
     return combined
 
 
-def pdf_images(data: bytes):
+def pdf_images(data: bytes, last_page: int = 5):
+    """Render a PDF to page images.
+
+    A vendor bill is one or two pages, so five is a generous ceiling and keeps a mistaken
+    200-page upload from burning the whole request. A colour sheet is a different thing:
+    one saree per page, so a ten-page sheet must give ten pictures, not five.
+    """
     result = []
 
     with tempfile.TemporaryDirectory() as tmp:
@@ -307,7 +313,7 @@ def pdf_images(data: bytes):
                 "-f",
                 "1",
                 "-l",
-                "5",
+                str(last_page),
                 pdf,
                 prefix
             ],
@@ -1008,7 +1014,11 @@ def health():
 
 
 SPLIT_MIN_AREA = 0.02      # a photo smaller than 2% of the page is noise
+SPLIT_MIN_SIDE = 0.25      # ...and one narrower or shorter than a quarter of the page is a sliver
+SPLIT_MIN_ASPECT = 1 / 3   # a crop thinner than 1:3 is a door frame, not a saree
+SPLIT_MAX_ASPECT = 3
 SPLIT_MAX_PHOTOS = 30
+SPLIT_MAX_PAGES = 30       # a sheet is one saree per page, unlike a bill
 
 
 def photo_blocks(page):
@@ -1043,7 +1053,15 @@ def photo_blocks(page):
         if w * h < SPLIT_MIN_AREA * height * width:
             continue
 
-        if w < width * 0.08 or h < height * 0.05:
+        # A model photo fills a good part of the page. The slivers this used to return -
+        # a door frame beside the model, a strip of wall, the shadow under a plinth - are
+        # all narrow or squat, so a crop must be at least a quarter of the page each way
+        # and roughly photo-shaped rather than a ribbon.
+        if w < width * SPLIT_MIN_SIDE or h < height * SPLIT_MIN_SIDE:
+            continue
+
+        aspect = w / float(h)
+        if aspect < SPLIT_MIN_ASPECT or aspect > SPLIT_MAX_ASPECT:
             continue
 
         boxes.append((x, y, w, h))
@@ -1088,7 +1106,7 @@ async def split(file: UploadFile = File(...)):
 
     try:
         pages = (
-            pdf_images(data)
+            pdf_images(data, last_page=SPLIT_MAX_PAGES)
             if content_type == "application/pdf"
             else [decode_image(data)]
         )

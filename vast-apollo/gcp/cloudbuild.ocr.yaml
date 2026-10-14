@@ -1,0 +1,16 @@
+# Build the bill reader image (Python, tesseract, poppler, OpenCV).
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - gcp/Dockerfile.ocr
+      - -t
+      - ${_IMAGE}
+      - .
+images:
+  - ${_IMAGE}
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: E2_HIGHCPU_8
+timeout: 1200s

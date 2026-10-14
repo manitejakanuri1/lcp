@@ -11,7 +11,7 @@ WORKDIR /app
 COPY api/package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
-COPY api/index.js api/db.js api/firebase.js api/storage.js ./
+COPY api/index.js api/db.js api/firebase.js api/storage.js api/ocr.js ./
 
 # Cloud Run hands the port in; 8080 is only the local default.
 ENV NODE_ENV=production PORT=8080

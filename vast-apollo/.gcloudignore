@@ -5,7 +5,13 @@ dist/
 !.env.example
 api/ocr_models/
 api/vendor/
-deploy/
+# Keep the bill reader's source (the image is built from it); the rest of deploy/ is the
+# dead VPS setup. A negation cannot re-include through an excluded directory, so each level
+# has to be opened in turn.
+deploy/*
+!deploy/vps/
+deploy/vps/*
+!deploy/vps/ocr-service/
 src/
 public/
 tests/

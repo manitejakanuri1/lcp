@@ -1,0 +1,41 @@
+# The bill reader for Cloud Run: reads a vendor bill, and cuts a colour sheet into one
+# picture per colour.
+#
+# Same service as ran on the VPS (deploy/vps/ocr-service/app.py), with two changes for
+# Cloud Run: it listens on the port Cloud Run hands in, and it starts through a shell so
+# that variable is read at run time rather than baked in.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    OCR_LANGS=eng+tel \
+    PORT=8080
+
+# tesseract with English and Telugu for the fallback reader; poppler for pdftoppm, which
+# turns a PDF bill or colour sheet into page images; libgl/libglib for OpenCV, which does
+# the cutting.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+        tesseract-ocr-tel \
+        poppler-utils \
+        libglib2.0-0 \
+        libgl1 && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY deploy/vps/ocr-service/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY deploy/vps/ocr-service/app.py .
+
+RUN useradd --create-home --uid 10001 appuser
+USER appuser
+
+EXPOSE 8080
+
+# One worker: a page render plus OpenCV is memory-hungry, and Cloud Run scales by adding
+# instances rather than workers inside one.
+CMD ["sh", "-c", "uvicorn app:app --host 0.0.0.0 --port ${PORT} --workers 1"]

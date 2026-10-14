@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import { many, one, count, tx, insertClause, setClause } from './db.js';
 import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
 import { storePhoto, sweepFolder, deletePhotoPair, storeBill, readBill, originalUrlFor } from './storage.js';
+import { callOcr, ocrBase } from './ocr.js';
 
 // Load environment variables
 dotenv.config();
@@ -1239,15 +1240,15 @@ app.post('/api/inventory/upload-bill', authenticateToken, requireStaff, upload.s
         // third-party service is involved.
         // On the VPS the bill is read by the Tesseract service (lakshmi-ocr) instead,
         // which takes a multipart upload and answers in its own flat shape.
-        const tesseractUrl = process.env.TESSERACT_OCR_URL;
+        const tesseractUrl = ocrBase();
         const extractorUrl = process.env.EXTRACTOR_URL || `https://${req.headers.host}/api/extract_bill`;
 
         let extractResponse;
         try {
             if (tesseractUrl) {
-                const form = new FormData();
-                form.append('file', new Blob([imageBuffer], { type: mimeType }), fileName);
-                extractResponse = await fetch(tesseractUrl, { method: 'POST', body: form });
+                // Signed with this service's own identity: the reader is private and refuses
+                // anyone else (api/ocr.js).
+                extractResponse = await callOcr('ocr', imageBuffer, mimeType, fileName);
             } else {
                 extractResponse = await fetch(extractorUrl, {
                     method: 'POST',
@@ -1560,13 +1561,9 @@ app.post('/api/website/colors/split', authenticateToken, requireStaff, singlePho
     try {
         if (!req.file) return res.status(400).json({ error: 'Choose a PDF or a photo' });
 
-        const splitUrl = (process.env.OCR_SERVICE_URL || process.env.TESSERACT_OCR_URL || '').replace(/\/ocr$/, '/split');
-        if (!splitUrl) return res.status(503).json({ error: 'Splitter is not configured' });
+        if (!ocrBase()) return res.status(503).json({ error: 'Splitter is not configured' });
 
-        const form = new FormData();
-        form.append('file', new Blob([req.file.buffer], { type: req.file.mimetype }), req.file.originalname || 'sheet');
-
-        const reply = await fetch(splitUrl, { method: 'POST', body: form });
+        const reply = await callOcr('split', req.file.buffer, req.file.mimetype, req.file.originalname || 'sheet');
         if (!reply.ok) {
             console.error('Splitter returned', reply.status, await reply.text().catch(() => ''));
             return res.status(502).json({ error: 'Could not read that file' });
