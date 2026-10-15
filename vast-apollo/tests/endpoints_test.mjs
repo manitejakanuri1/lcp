@@ -81,8 +81,13 @@ check('GET /api/auth/me', 'knows who is signed in', me.ok && me.json?.user?.user
 // photo bucket or every saree picture is a blank square in the browser.
 const page = await fetch(BASE + '/');
 const csp = page.headers.get('content-security-policy') || '';
-check('GET / (the screens)', 'photo bucket is allowed by the page rules',
-    csp.includes('storage.googleapis.com'), csp.slice(0, 60) || 'no header');
+const directive = (name) => (csp.split(';').find((d) => d.trim().startsWith(name + ' ')) || '');
+check('GET / (the screens)', 'the page may show a photo from the bucket',
+    directive('img-src').includes('storage.googleapis.com'), directive('img-src') || 'no img-src');
+// The service worker caches photos, and a fetch inside a worker is judged by connect-src.
+// Allowing img-src alone leaves every photo blank on a phone that has the app installed.
+check('GET /sw.js (the cache)', 'the service worker may fetch a photo from the bucket',
+    directive('connect-src').includes('storage.googleapis.com'), directive('connect-src') || 'no connect-src');
 
 // ---- Stock In: a purchase bill with its sarees -----------------------------------------
 const purchase = await call('POST', '/api/vendor-bills', {

@@ -66,7 +66,7 @@ export default defineConfig({
             urlPattern: /^https:\/\/storage\.googleapis\.com\/lakshmi-sarees-photos\/.*/i,
             handler: 'CacheFirst',
             options: {
-              cacheName: 'saree-photos',
+              cacheName: 'saree-photos-v2',
               expiration: {
                 maxEntries: 300,
                 maxAgeSeconds: 60 * 60 * 24 * 30 // a month

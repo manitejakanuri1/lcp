@@ -134,7 +134,14 @@ app.use(helmet({
     // are widened, and only to that one host - scripts, forms and frames stay as helmet
     // sets them.
     contentSecurityPolicy: {
-        directives: { 'img-src': ["'self'", 'data:', 'blob:', 'https://storage.googleapis.com'] },
+        directives: {
+            'img-src': ["'self'", 'data:', 'blob:', 'https://storage.googleapis.com'],
+            // The service worker caches saree photos so the shop's phones do not refetch them
+            // on mobile data, and a fetch made inside a worker is governed by connect-src, not
+            // img-src. Without this the page was allowed to ask for a photo and the worker was
+            // then refused the very request it had intercepted, so every photo stayed blank.
+            'connect-src': ["'self'", 'https://storage.googleapis.com'],
+        },
     },
 }));
 
