@@ -124,10 +124,18 @@ app.use(cors({
     credentials: true,
 }));
 
-// Security middleware â€” configured to not break CORS preflight
+// Security middleware - configured to not break CORS preflight
 app.use(helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginOpenerPolicy: false,
+    // Saree and colour photos live in the public Cloud Storage bucket, not next to the
+    // screens, so helmet's default img-src 'self' blocked every one of them: the upload
+    // worked, the address was stored, and the browser then refused to load it. Only images
+    // are widened, and only to that one host - scripts, forms and frames stay as helmet
+    // sets them.
+    contentSecurityPolicy: {
+        directives: { 'img-src': ["'self'", 'data:', 'blob:', 'https://storage.googleapis.com'] },
+    },
 }));
 
 app.use(express.json());
