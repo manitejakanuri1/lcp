@@ -9,7 +9,8 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "start:local": "node scripts/start-local.mjs",
-    "test:api": "node tests/run-all.mjs"
+    "test:api": "node tests/run-all.mjs",
+    "typecheck": "tsc -b --force"
   },
   "dependencies": {
     "@google-cloud/storage": "^8.4.0",

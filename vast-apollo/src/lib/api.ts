@@ -171,7 +171,7 @@ export const productsApi = {
         const formData = new FormData();
         formData.append('photo', file);
 
-        const token = await getAuthToken();
+        const token = getToken();
         const headers: HeadersInit = {};
         if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -200,13 +200,9 @@ export const productsApi = {
 
 export const vendorBillsApi = {
     create: async (bill: Omit<VendorBill, 'id' | 'created_at'>, products: Omit<Product, 'id' | 'created_at' | 'vendor_bill_id'>[]) => {
-        // Direct fetch rather than request(), because this sends its own shape. The token
-        // comes from getAuthToken, which races getSession against a 3s timeout: a bare
-        // getSession() can hang indefinitely — after a password change it stalls trying to
-        // renew a refresh token that is no longer valid — and awaiting it means the request
-        // below is never sent at all, leaving the save button spinning forever. Catching
-        // does not help, since hanging never throws.
-        const token = await getAuthToken();
+        // A direct fetch rather than request(), because this sends its own shape and needs
+        // its own timeout.
+        const token = getToken();
 
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 30000);
@@ -526,7 +522,7 @@ export const inventoryApi = {
         // Same token lookup as every other call. The old code read the session from a
         // localStorage key hard-wired to the cloud Supabase project, so on any other
         // Supabase (the VPS) it sent no token and the upload got 401 "Access denied".
-        const token = await getAuthToken();
+        const token = getToken();
 
         const headers: HeadersInit = {};
         if (token) {
@@ -611,7 +607,7 @@ export const websiteApi = {
         formData.append('color_name', colorName);
         formData.append('pieces', String(pieces));
         if (file) formData.append('photo', file);
-        const token = await getAuthToken();
+        const token = getToken();
         const response = await fetch(`${API_BASE}/website/products/${productId}/colors`, {
             method: 'POST',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -628,7 +624,7 @@ export const websiteApi = {
     setColorPhoto: async (colorId: string, file: File) => {
         const formData = new FormData();
         formData.append('photo', file);
-        const token = await getAuthToken();
+        const token = getToken();
         const response = await fetch(`${API_BASE}/website/colors/${colorId}/photo`, {
             method: 'PUT',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -643,7 +639,7 @@ export const websiteApi = {
     splitSheet: async (file: File) => {
         const formData = new FormData();
         formData.append('photo', file);
-        const token = await getAuthToken();
+        const token = getToken();
         const response = await fetch(`${API_BASE}/website/colors/split`, {
             method: 'POST',
             headers: token ? { Authorization: `Bearer ${token}` } : {},
