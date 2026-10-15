@@ -76,7 +76,7 @@ export function BillImageUpload({ onDataExtracted }: BillImageUploadProps) {
                 if (err.message.includes('Access denied') || err.message.includes('Unauthorized')) {
                     errorMessage = '🔒 Authentication error. Please log out and log in again.';
                 } else if (err.message.includes('Failed to upload image to storage')) {
-                    errorMessage = '💾 Storage error. Check Supabase storage bucket configuration.';
+                    errorMessage = '💾 The bill photo could not be saved. Try again; if it keeps failing, the photo store is unreachable.';
                 } else if (err.message.includes('Failed to extract structured data')) {
                     errorMessage = '🤖 AI extraction failed. Try a clearer image or different bill.';
                 } else if (err.message.includes('Network') || err.message.includes('fetch') || err.name === 'TypeError') {

@@ -80,7 +80,7 @@ export function Users() {
     }
 
     const handleDeleteUser = async (userId: string, userName: string) => {
-        alert('User deletion is disabled for security. Please manage users through Supabase Dashboard.')
+        alert('A login cannot be deleted. Switch it off instead - open the staff member and set them to inactive, which stops them signing in and keeps their past sales on their name.')
     }
 
     const handleViewUser = (user: User) => {
