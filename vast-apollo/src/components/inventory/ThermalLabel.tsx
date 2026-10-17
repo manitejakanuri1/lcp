@@ -1,11 +1,18 @@
 import type { Product } from '../../lib/api'
-// The label sheet opens in a blank window, which inherits this page's security rules, and
-// those allow scripts from this site only. Loaded from a CDN the barcode drawer and the PDF
-// maker were both refused, so every label printed without its barcode and Download PDF did
-// nothing. ?url makes Vite copy each library into our own build, so the window loads them
-// from this site - and the shop can still print when the internet is down.
-import jsBarcodeUrl from 'jsbarcode/dist/JsBarcode.all.min.js?url'
-import jsPdfUrl from 'jspdf/dist/jspdf.umd.min.js?url'
+// The label sheet opens in a blank window, and that window inherits this page's security
+// rules: scripts from this site only, and no inline code at all. So the sheet carries no
+// script of its own. Everything is drawn here, in the app, and the window is handed finished
+// paper - the barcodes as pictures, the two buttons wired up from this side. It also means
+// the shop can still print when its internet is down.
+import JsBarcode from 'jsbarcode'
+import { jsPDF } from 'jspdf'
+
+/** One barcode, drawn here and handed over as a picture the label window can simply show. */
+function barcodePng(value: string, height: number): string {
+    const canvas = document.createElement('canvas')
+    JsBarcode(canvas, value, { format: 'CODE128', width: 2, height, displayValue: false, margin: 0 })
+    return canvas.toDataURL('image/png')
+}
 
 /**
  * Print thermal labels (50mm × 30mm) for ATPOS MD80 80mm Bluetooth printer.
@@ -37,7 +44,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <div class="label" id="label-${index}">
             <div class="shop-name">${shopName}</div>
             <div class="barcode-container">
-                <svg id="barcode-${index}"></svg>
+                <img class="barcode-img" alt="${product.barcode_no || product.sku}" src="${barcodePng(String(product.barcode_no || product.sku), 30)}">
             </div>
             <div class="sku-text">${product.sku}</div>
             <div class="saree-name">${product.saree_name || ''}</div>
@@ -54,8 +61,6 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <html>
         <head>
             <title>Thermal Labels</title>
-            <script src="${jsBarcodeUrl}"><\/script>
-            <script src="${jsPdfUrl}"><\/script>
             <style>
                 * {
                     margin: 0;
@@ -113,7 +118,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     min-height: 0;
                 }
 
-                .barcode-container svg {
+                .barcode-container img {
                     max-width: 100%;
                     height: auto;
                     max-height: 8mm;
@@ -282,8 +287,8 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 <h2>Thermal Labels (50mm x 30mm)</h2>
                 <p>${products.length} label${products.length > 1 ? 's' : ''} for ATPOS MD80</p>
                 <div class="btn-row">
-                    <button class="print-btn" onclick="window.print()">Print Labels</button>
-                    <button class="pdf-btn" id="pdf-btn" onclick="downloadPDF()">Download PDF</button>
+                    <button class="print-btn" id="print-btn" type="button">Print Labels</button>
+                    <button class="pdf-btn" id="pdf-btn" type="button">Download PDF</button>
                 </div>
             </div>
 
@@ -291,86 +296,63 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 ${labelsHtml}
             </div>
 
-            <script>
-                window.onload = function() {
-                    ${products.map((product, index) => `
-                        try {
-                            JsBarcode("#barcode-${index}", "${product.barcode_no || product.sku}", {
-                                format: "CODE128",
-                                width: 2,
-                                height: 30,
-                                displayValue: false,
-                                margin: 0
-                            });
-                        } catch(e) {
-                            console.error("Barcode error for ${product.sku}:", e);
-                        }
-                    `).join('')}
-                };
-
-                var LABELS = ${JSON.stringify(labelData)};
-
-                // Draw each label straight into the PDF. Screenshotting 40 labels
-                // with html2canvas took minutes and looked stuck.
-                async function downloadPDF() {
-                    var btn = document.getElementById('pdf-btn');
-                    btn.disabled = true;
-
-                    try {
-                        var jsPDF = window.jspdf.jsPDF;
-                        // 30 mm page, printing kept inside the top 26 mm of sticker face
-                        var pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [30, 50] });
-                        var canvas = document.createElement('canvas');
-
-                        for (var i = 0; i < LABELS.length; i++) {
-                            btn.textContent = 'Generating ' + (i + 1) + '/' + LABELS.length;
-                            await new Promise(function(r) { setTimeout(r, 0); });
-
-                            if (i > 0) pdf.addPage([30, 50], 'landscape');
-                            var L = LABELS[i];
-
-                            pdf.setFont('helvetica', 'bold');
-                            pdf.setFontSize(6);
-                            pdf.text(L.shop, 25, 3, { align: 'center' });
-
-                            JsBarcode(canvas, L.bars, {
-                                format: 'CODE128', width: 2, height: 60,
-                                displayValue: false, margin: 0
-                            });
-                            pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 5, 4, 40, 7.5);
-
-                            pdf.setFont('courier', 'bold');
-                            pdf.setFontSize(6.5);
-                            pdf.text(L.sku, 25, 13.8, { align: 'center' });
-
-                            pdf.setFont('helvetica', 'normal');
-                            pdf.setFontSize(6);
-                            pdf.text(L.name, 25, 17.3, { align: 'center' });
-
-                            pdf.setFont('helvetica', 'bold');
-                            pdf.setFontSize(8);
-                            pdf.text('MRP ' + L.mrp, 24, 21.4, { align: 'right' });
-                            pdf.text('DISC ' + L.disc, 26, 21.4, { align: 'left' });
-
-                            if (L.code) {
-                                pdf.setFont('courier', 'normal');
-                                pdf.setFontSize(5);
-                                pdf.text('Code: ' + L.code, 25, 24.6, { align: 'center' });
-                            }
-                        }
-
-                        pdf.save('${fileName}.pdf');
-                    } catch(e) {
-                        console.error('PDF generation error:', e);
-                        alert('Failed to generate PDF: ' + (e && e.message ? e.message : e) + '. Please try Print instead.');
-                    }
-
-                    btn.textContent = 'Download PDF';
-                    btn.disabled = false;
-                }
-            <\/script>
         </body>
         </html>
     `)
     printWindow.document.close()
+
+    // The buttons are wired from this side. A window opened blank shares this page's origin,
+    // so its elements are reachable from here, and a listener added here is this page's code
+    // running - which the rules allow, where an onclick="" inside the sheet would not be.
+    printWindow.document.getElementById('print-btn')?.addEventListener('click', () => printWindow.print())
+
+    const pdfButton = printWindow.document.getElementById('pdf-btn') as HTMLButtonElement | null
+    pdfButton?.addEventListener('click', async () => {
+        pdfButton.disabled = true
+        try {
+            // Each label is drawn straight into the PDF. Screenshotting 40 labels with
+            // html2canvas took minutes and looked stuck.
+            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [30, 50] })
+
+            for (let i = 0; i < labelData.length; i++) {
+                pdfButton.textContent = `Generating ${i + 1}/${labelData.length}`
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                if (i > 0) pdf.addPage([30, 50], 'landscape')
+                const L = labelData[i]
+
+                pdf.setFont('helvetica', 'bold')
+                pdf.setFontSize(6)
+                pdf.text(L.shop, 25, 3, { align: 'center' })
+
+                pdf.addImage(barcodePng(L.bars, 60), 'PNG', 5, 4, 40, 7.5)
+
+                pdf.setFont('courier', 'bold')
+                pdf.setFontSize(6.5)
+                pdf.text(L.sku, 25, 13.8, { align: 'center' })
+
+                pdf.setFont('helvetica', 'normal')
+                pdf.setFontSize(6)
+                pdf.text(L.name, 25, 17.3, { align: 'center' })
+
+                pdf.setFont('helvetica', 'bold')
+                pdf.setFontSize(8)
+                pdf.text('MRP ' + L.mrp, 24, 21.4, { align: 'right' })
+                pdf.text('DISC ' + L.disc, 26, 21.4, { align: 'left' })
+
+                if (L.code) {
+                    pdf.setFont('courier', 'normal')
+                    pdf.setFontSize(5)
+                    pdf.text('Code: ' + L.code, 25, 24.6, { align: 'center' })
+                }
+            }
+
+            pdf.save(`${fileName}.pdf`)
+        } catch (err) {
+            console.error('PDF generation error:', err)
+            alert('Could not build the PDF. Please use Print instead.')
+        }
+        pdfButton.textContent = 'Download PDF'
+        pdfButton.disabled = false
+    })
 }
