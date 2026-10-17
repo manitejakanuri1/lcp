@@ -23,6 +23,7 @@
     "helmet": "^8.0.0",
     "html2canvas": "^1.4.1",
     "html5-qrcode": "^2.3.8",
+    "jsbarcode": "^3.12.3",
     "jsonwebtoken": "^9.0.2",
     "jspdf": "^4.2.0",
     "lucide-react": "^0.575.0",

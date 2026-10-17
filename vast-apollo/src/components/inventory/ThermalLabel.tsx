@@ -1,4 +1,11 @@
 import type { Product } from '../../lib/api'
+// The label sheet opens in a blank window, which inherits this page's security rules, and
+// those allow scripts from this site only. Loaded from a CDN the barcode drawer and the PDF
+// maker were both refused, so every label printed without its barcode and Download PDF did
+// nothing. ?url makes Vite copy each library into our own build, so the window loads them
+// from this site - and the shop can still print when the internet is down.
+import jsBarcodeUrl from 'jsbarcode/dist/JsBarcode.all.min.js?url'
+import jsPdfUrl from 'jspdf/dist/jspdf.umd.min.js?url'
 
 /**
  * Print thermal labels (50mm × 30mm) for ATPOS MD80 80mm Bluetooth printer.
@@ -47,8 +54,8 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <html>
         <head>
             <title>Thermal Labels</title>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
-            <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"><\/script>
+            <script src="${jsBarcodeUrl}"><\/script>
+            <script src="${jsPdfUrl}"><\/script>
             <style>
                 * {
                     margin: 0;
