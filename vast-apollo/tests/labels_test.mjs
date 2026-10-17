@@ -7,7 +7,7 @@
 // way a person does, then checks the drawing itself.
 //
 //   POS_PASSWORD=... node tests/labels_test.mjs
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import { mkdtempSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -112,6 +112,50 @@ check('Download PDF saves a file', !!download && size > 2000,
     download ? `${download.suggestedFilename()}, ${Math.round(size / 1024)} KB` : 'no file was offered');
 
 check('nothing was refused by the security rules', sheetErrors.length === 0, sheetErrors.join(' | '));
+
+// ---- the same thing on a phone ---------------------------------------------------------
+// The sheet had no viewport line, so a phone laid it out 980px wide and shrank it to fit:
+// the two buttons came out about 13px tall, thinner than a fingertip. The page looked right,
+// which is why it read as a broken download rather than a missed tap. A real tap is what
+// this checks - not a click sent by code, which hits the button however small it is.
+const phone = await browser.newContext({ ...devices['Pixel 5'], acceptDownloads: true });
+const small = await phone.newPage();
+await small.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+await small.fill('input[name="username"], input[type="text"]', USERNAME);
+await small.fill('input[type="password"]', PASSWORD);
+await small.click('button[type="submit"]');
+await small.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20_000 });
+
+await small.goto(`${BASE}/inventory`, { waitUntil: 'networkidle' });
+const phoneCard = small.locator('div.cursor-pointer').filter({ hasText: /S-/ }).first();
+await phoneCard.waitFor({ timeout: 20_000 });
+await phoneCard.click();
+await small.getByRole('button', { name: /View & Print Barcode/i }).click();
+const [phoneSheet] = await Promise.all([
+    phone.waitForEvent('page', { timeout: 20_000 }),
+    small.getByRole('button', { name: /Print Label/i }).first().click(),
+]);
+await phoneSheet.waitForLoadState('domcontentloaded');
+await phoneSheet.waitForTimeout(1500);
+
+const fits = await phoneSheet.evaluate(() => ({
+    meta: !!document.querySelector('meta[name="viewport"]'),
+    layout: innerWidth,
+    button: document.getElementById('pdf-btn').getBoundingClientRect(),
+}));
+check('the sheet fits a phone screen', fits.meta && fits.layout < 500, `laid out ${fits.layout}px wide`);
+// Apple and Google both put the smallest comfortable target at about 44px.
+check('Download PDF is big enough for a finger', fits.button.height >= 40 && fits.button.width >= 120,
+    `${Math.round(fits.button.width)}x${Math.round(fits.button.height)}px`);
+
+const [phoneDownload] = await Promise.all([
+    Promise.race([
+        small.waitForEvent('download', { timeout: 30_000 }),
+        phoneSheet.waitForEvent('download', { timeout: 30_000 }),
+    ]).catch(() => null),
+    phoneSheet.getByRole('button', { name: /Download PDF/i }).tap(),
+]);
+check('a real tap on a phone saves the PDF', !!phoneDownload, phoneDownload ? phoneDownload.suggestedFilename() : 'nothing was offered');
 
 rmSync(downloads, { recursive: true, force: true });
 await browser.close();

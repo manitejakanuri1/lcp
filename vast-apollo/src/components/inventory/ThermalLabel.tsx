@@ -61,6 +61,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         <html>
         <head>
             <title>Thermal Labels</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
             <style>
                 * {
                     margin: 0;
@@ -244,6 +245,19 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     }
                 }
 
+                @media screen and (max-width: 640px) {
+                    .btn-row {
+                        flex-direction: column;
+                        padding: 0 16px;
+                    }
+
+                    .print-btn, .pdf-btn {
+                        width: 100%;
+                        padding: 14px 16px;
+                        font-size: 16px;
+                    }
+                }
+
                 @media print {
                     .print-header {
                         display: none !important;
@@ -347,7 +361,12 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 }
             }
 
-            pdf.save(`${fileName}.pdf`)
+            const link = printWindow.document.createElement('a')
+            link.href = (printWindow as Window & typeof globalThis).URL.createObjectURL(pdf.output('blob'))
+            link.download = `${fileName}.pdf`
+            printWindow.document.body.appendChild(link)
+            link.click()
+            setTimeout(() => { (printWindow as Window & typeof globalThis).URL.revokeObjectURL(link.href); link.remove() }, 30_000)
         } catch (err) {
             console.error('PDF generation error:', err)
             alert('Could not build the PDF. Please use Print instead.')
