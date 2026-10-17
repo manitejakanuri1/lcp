@@ -326,13 +326,19 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         try {
             // Each label is drawn straight into the PDF. Screenshotting 40 labels with
             // html2canvas took minutes and looked stuck.
-            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [30, 50] })
+            // 26 mm, not the 30 mm the sticker is sold as: the roll measured 26 mm of face
+            // with a 2 mm gap, so a 30 mm page runs past the die-cut, the printer loses the
+            // gap and feeds a whole blank sticker while hunting for the next one - a blank
+            // between every label. The laptop never showed it because composite_labels.py
+            // squeezes the page to 26 mm before sending; a phone prints the PDF as it is.
+            // Nothing on the label moves: the lowest line sits at 24.6 mm.
+            const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [26, 50] })
 
             for (let i = 0; i < labelData.length; i++) {
                 pdfButton.textContent = `Generating ${i + 1}/${labelData.length}`
                 await new Promise((resolve) => setTimeout(resolve, 0))
 
-                if (i > 0) pdf.addPage([30, 50], 'landscape')
+                if (i > 0) pdf.addPage([26, 50], 'landscape')
                 const L = labelData[i]
 
                 pdf.setFont('helvetica', 'bold')
