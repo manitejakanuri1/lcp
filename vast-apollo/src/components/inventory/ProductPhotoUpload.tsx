@@ -116,7 +116,6 @@ export function ProductPhotoUpload({ productId, currentImageUrl, onPhotoChanged 
                     ref={fileInputRef}
                     type="file"
                     accept="image/jpeg,image/png,image/jpg,image/webp"
-                    capture="environment"
                     onChange={handleFileSelect}
                     className="hidden"
                 />

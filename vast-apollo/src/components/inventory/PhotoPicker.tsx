@@ -85,7 +85,6 @@ export function PhotoPicker({ file, onChange, disabled = false }: PhotoPickerPro
                     ref={fileInputRef}
                     type="file"
                     accept="image/jpeg,image/png,image/jpg,image/webp"
-                    capture="environment"
                     onChange={handleFileSelect}
                     disabled={disabled}
                     className="hidden"
