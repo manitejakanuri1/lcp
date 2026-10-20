@@ -1533,6 +1533,125 @@ app.get('/api/website/products', authenticateToken, async (req, res) => {
     }
 });
 
+/**
+ * Write a saree out as a listing the website can show, inside the caller's transaction.
+ *
+ * The listing holds no stock and no prices of its own worth the name: stock is counted
+ * live from the shop's piece counts through store.variant_stock, and a republish rewrites
+ * the prices from the shop. One colour becomes one thing a shopper can pick, and the saree's
+ * own colour - the one the main photo shows - becomes another, linked with a null colour so
+ * store.variant_stock knows to read main_color_pieces for it.
+ *
+ * Republishing is how an edit reaches the website: the listing keeps its id and its slug, so
+ * a link already sent to a customer still works, while the colours are rebuilt from scratch.
+ */
+const publishToWebsite = async (client, productId) => {
+    const saree = (await client.query(
+        `select id, sku, saree_name, saree_type, material, color, main_color_pieces,
+                selling_price_a, selling_price_b, image_url
+           from pos.products where id = $1`,
+        [productId],
+    )).rows[0];
+    if (!saree) return { error: 'Product not found' };
+
+    const colours = (await client.query(
+        'select id, color_name, sku, image_url, pieces from pos.product_colors where product_id = $1 order by sort_order, created_at',
+        [productId],
+    )).rows;
+
+    // The owner's rules, written down in docs/website-mapping.md. A listing with no picture
+    // is skipped by shoppers, and a saree with nothing to choose between is a counter sale.
+    if (!saree.image_url) return { error: 'Add a main photo before showing it on the website' };
+    if (!saree.saree_type) return { error: 'Choose a category before showing it on the website' };
+    const withPhotos = colours.filter((c) => c.image_url);
+    if (!withPhotos.length) {
+        return { error: 'Add at least one colour with a photo before showing it on the website' };
+    }
+
+    const category = (await client.query('select id from store.categories where slug = $1', [saree.saree_type])).rows[0];
+    if (!category) return { error: `The category "${saree.saree_type}" does not exist on the website yet` };
+
+    // The sku is the one printed on the sticker, so the slug built from it stays stable
+    // across every republish and across a rename of the saree.
+    const slug = `${(saree.saree_name || 'saree').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'saree'}-${saree.sku.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+    const price = Number(saree.selling_price_a) || 0;
+    const sale = Number(saree.selling_price_b) || 0;
+    // The website refuses a sale price that is not below the full price, and the shop is
+    // free to set them equal.
+    const discount = sale > 0 && sale < price ? sale : null;
+
+    const listing = (await client.query(
+        `insert into store.products (slug, name, fabric, status, published_at)
+         values ($1, $2, $3, 'published', now())
+         on conflict (slug) do update
+            set name = excluded.name, fabric = excluded.fabric,
+                status = 'published', published_at = coalesce(store.products.published_at, now())
+         returning id`,
+        [slug, saree.saree_name || saree.sku, saree.material && saree.material !== 'Not specified' ? saree.material : 'Saree'],
+    )).rows[0];
+
+    // Colours are rebuilt rather than patched: a colour deleted in the shop has to leave the
+    // website too, and matching them up one by one would be more code for the same answer.
+    // The stock links go with them; nothing in pos.* is touched by the delete.
+    await client.query('delete from store.product_variants where product_id = $1', [listing.id]);
+    await client.query('delete from store.product_images where product_id = $1', [listing.id]);
+
+    const rows = [
+        // The main photo's own colour, when the shop has given it one and some pieces.
+        ...(saree.color && saree.main_color_pieces > 0
+            ? [{ colorId: null, name: saree.color, sku: saree.sku, image: saree.image_url }]
+            : []),
+        ...withPhotos.map((c) => ({ colorId: c.id, name: c.color_name, sku: c.sku || `${saree.sku}-${c.id.slice(0, 4)}`, image: c.image_url })),
+    ];
+
+    for (const [index, row] of rows.entries()) {
+        const variant = (await client.query(
+            `insert into store.product_variants (product_id, sku, color, price, discount_price, position, is_active)
+             values ($1, $2, $3, $4, $5, $6, true) returning id`,
+            [listing.id, row.sku, row.name, price, discount, index],
+        )).rows[0];
+
+        await client.query(
+            `insert into store.variant_stock_source (variant_id, product_id, color_id)
+             values ($1, $2, $3)
+             on conflict (variant_id) do update set product_id = excluded.product_id, color_id = excluded.color_id`,
+            [variant.id, saree.id, row.colorId],
+        );
+
+        await client.query(
+            `insert into store.product_images (product_id, variant_id, url, alt, position)
+             values ($1, $2, $3, $4, $5)`,
+            [listing.id, variant.id, row.image, `${saree.saree_name || saree.sku} - ${row.name}`, index],
+        );
+    }
+
+    await client.query(
+        `insert into store.product_categories (product_id, category_id, is_primary)
+         values ($1, $2, true)
+         on conflict (product_id, category_id) do update set is_primary = true`,
+        [listing.id, category.id],
+    );
+
+    return { listingId: listing.id, variants: rows.length };
+};
+
+/**
+ * Take a saree back off the website. The listing is hidden rather than deleted: an order
+ * placed while it was up still points at it, and a saree usually comes back once it has been
+ * photographed again or restocked.
+ */
+const unpublishFromWebsite = async (client, productId) => {
+    const sku = (await client.query('select sku from pos.products where id = $1', [productId])).rows[0]?.sku;
+    if (!sku) return;
+    await client.query(
+        `update store.products set status = 'draft', updated_at = now()
+          where id in (select distinct v.product_id from store.product_variants v
+                       join store.variant_stock_source s on s.variant_id = v.id
+                      where s.product_id = $1)`,
+        [productId],
+    );
+};
+
 // Category and the website switch
 app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req, res) => {
     try {
@@ -1561,9 +1680,28 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
                  returning id, saree_type, on_website, color, main_color_pieces`,
                 [req.params.id, ...values],
             )).rows[0];
+            if (!row) return { row };
+
+            // The switch is what puts the saree in front of a shopper, so the listing is
+            // written in the same transaction: a flag that says "on the website" with no
+            // listing behind it would be a lie the next screen would repeat.
+            if (changes.on_website === true) {
+                const published = await publishToWebsite(client, req.params.id);
+                if (published.error) return { bare: null, failed: published.error };
+                return { row, published };
+            }
+            if (changes.on_website === false) await unpublishFromWebsite(client, req.params.id);
+
+            // An edit to a saree that is already up has to reach the website too, or the
+            // shop and the shelf drift apart until someone toggles the switch.
+            if (changes.on_website === undefined && row.on_website) {
+                const published = await publishToWebsite(client, req.params.id);
+                if (published.error) return { bare: null, failed: published.error };
+            }
             return { row };
         });
 
+        if (result.failed) return res.status(400).json({ error: result.failed });
         if (result.bare) {
             return res.status(400).json({
                 error: `Add photos for ${result.bare.join(', ')} before showing it on the website`,
