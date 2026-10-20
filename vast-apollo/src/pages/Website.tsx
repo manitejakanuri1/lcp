@@ -214,7 +214,16 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         setSheetMain(null)
     }, 'Could not read that file')
 
+    // A split colour sheet comes back with the picture bytes written into the address itself.
+    // fetch() would treat that as a trip to the network, and the shop only allows the network
+    // for itself and the photo store - so the save failed. The bytes are already here; unpack
+    // them. Anything that really is an address is still fetched.
     const fileFrom = async (url: string, name: string) => {
+        if (url.startsWith('data:')) {
+            const base64 = url.slice(url.indexOf(',') + 1)
+            const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+            return new File([bytes], name, { type: 'image/jpeg' })
+        }
         const blob = await (await fetch(url)).blob()
         return new File([blob], name, { type: 'image/jpeg' })
     }
