@@ -37,7 +37,9 @@ export function ProductThumbnail({ imageUrl, alt, className = '' }: ProductThumb
             alt={alt}
             loading="lazy"
             onError={() => setFailed(true)}
-            className={`object-cover bg-[var(--color-surface)] ${className}`}
+            // Contain, never cover: a saree photo is roughly 3 wide to 5 tall and the model's
+            // face is in the top tenth of it, so filling a shorter box crops the head clean off.
+            className={`object-contain bg-[var(--color-surface)] ${className}`}
         />
     );
 }

@@ -90,9 +90,13 @@ export function Website() {
                                 onClick={() => setSelected(p)}
                                 className="text-left bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl overflow-hidden hover:border-[var(--color-primary)] transition-colors"
                             >
-                                <div className="aspect-[4/3] bg-[var(--color-surface)] flex items-center justify-center">
+                                {/* A saree photo is about 3 wide to 5 tall with the model's face
+                                    in the top tenth. A 4:3 box showed only the middle 44% of it,
+                                    so every card was a headless saree. Tall box, and contain
+                                    rather than cover, everywhere a saree is shown. */}
+                                <div className="aspect-[3/4] bg-[var(--color-surface)] flex items-center justify-center">
                                     {p.image_url
-                                        ? <img src={p.image_url} alt={p.saree_name || p.sku} className="w-full h-full object-cover" />
+                                        ? <img src={p.image_url} alt={p.saree_name || p.sku} className="w-full h-full object-contain" />
                                         : <ImagePlus className="w-8 h-8 text-[var(--color-text-muted)]" />}
                                 </div>
                                 <div className="p-3 space-y-1">
@@ -332,7 +336,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     <div className="flex flex-col lg:flex-row gap-2">
                         <div className="flex-1 aspect-[3/4] bg-[var(--color-surface)] rounded-xl overflow-hidden flex items-center justify-center border border-[var(--color-border)]">
                             {current.url
-                                ? <img src={current.url} alt={current.name} className="w-full h-full object-cover" />
+                                ? <img src={current.url} alt={current.name} className="w-full h-full object-contain" />
                                 : <span className="text-sm text-[var(--color-text-muted)]">No main photo yet</span>}
                         </div>
                         {gallery.length > 1 && (
@@ -340,7 +344,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 {gallery.map((g, i) => (
                                     <button key={g.key} type="button" title={g.name} onClick={() => setShown(i)}
                                         className={`shrink-0 w-14 h-[74px] rounded-lg overflow-hidden border-2 ${i === shown ? 'border-[var(--color-primary)]' : 'border-transparent opacity-70'}`}>
-                                        {g.url && <img src={g.url} alt={g.name} className="w-full h-full object-cover" />}
+                                        {g.url && <img src={g.url} alt={g.name} className="w-full h-full object-contain" />}
                                     </button>
                                 ))}
                             </div>
@@ -427,7 +431,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                     <div key={c.id} className="border border-[var(--color-border)] rounded-xl overflow-hidden bg-[var(--color-surface-elevated)]">
                                         <div className="aspect-[3/4] bg-[var(--color-surface)]">
                                             {c.image_url ? (
-                                                <img src={c.image_url} alt={c.color_name} className="w-full h-full object-cover" />
+                                                <img src={c.image_url} alt={c.color_name} className="w-full h-full object-contain" />
                                             ) : canEdit ? (
                                                 <button type="button" disabled={busy}
                                                     onClick={() => photoFor.current?.(c.id)}
@@ -493,7 +497,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                                 <div key={i} className={`border rounded-xl overflow-hidden ${item.keep ? 'border-[var(--color-primary)]' : 'border-[var(--color-border)] opacity-60'}`}>
                                                     <button type="button" className="block w-full aspect-[3/4] bg-[var(--color-surface)]"
                                                         onClick={() => setSheet(sheet.map((p, j) => j === i ? { ...p, keep: !p.keep } : p))}>
-                                                        <img src={item.url} alt={`Picture ${i + 1}`} className="w-full h-full object-cover" />
+                                                        <img src={item.url} alt={`Picture ${i + 1}`} className="w-full h-full object-contain" />
                                                     </button>
                                                     <div className="p-2 space-y-2">
                                                         <input list="color-suggestions" placeholder="Colour" value={item.name}
@@ -578,7 +582,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                 {/* Show the picked photo itself, not its file name */}
                                 {colorPreview ? (
                                     <div className="relative w-24 h-32 rounded-lg overflow-hidden border border-[var(--color-border)]">
-                                        <img src={colorPreview} alt="Chosen colour" className="w-full h-full object-cover cursor-pointer"
+                                        <img src={colorPreview} alt="Chosen colour" className="w-full h-full object-contain cursor-pointer"
                                             onClick={() => colorInput.current?.click()} />
                                         <button type="button" title="Remove photo"
                                             onClick={() => { setColorFile(null); if (colorInput.current) colorInput.current.value = '' }}
