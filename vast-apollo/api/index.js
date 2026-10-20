@@ -1509,9 +1509,11 @@ app.get('/api/website/products', authenticateToken, async (req, res) => {
         // The colours come back nested and already in the order the screen shows them, so the
         // sort no longer happens in JavaScript after the fact.
         const rows = await many(
+            // cost_code is on the sticker, and colour labels are printed from this screen, so
+            // it has to travel with the saree. forRole still takes it back off a salesman.
             `select p.id, p.sku, p.barcode_no, p.vendor_name, p.saree_name, p.saree_type, p.color,
                     p.main_color_pieces, p.material, p.selling_price_a, p.selling_price_b,
-                    p.image_url, p.quantity, p.status, p.on_website, p.created_at,
+                    p.cost_code, p.image_url, p.quantity, p.status, p.on_website, p.created_at,
                     coalesce((
                       select jsonb_agg(jsonb_build_object(
                                'id', c.id, 'color_name', c.color_name, 'sku', c.sku,

@@ -32,7 +32,6 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
         bars: String(product.barcode_no || product.sku),
         name: (product.saree_name || '').slice(0, 28),
         mrp: 'Rs.' + product.selling_price_a.toLocaleString('en-IN'),
-        disc: 'Rs.' + product.selling_price_b.toLocaleString('en-IN'),
         code: product.cost_code ? product.cost_code.toUpperCase() : '',
     }))
 
@@ -50,7 +49,6 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
             <div class="saree-name">${product.saree_name || ''}</div>
             <div class="prices">
                 <span class="price-mrp">MRP &#8377;${product.selling_price_a.toLocaleString('en-IN')}</span>
-                <span class="price-disc">DISC &#8377;${product.selling_price_b.toLocaleString('en-IN')}</span>
             </div>
             ${product.cost_code ? `<div class="cost-code">Code: ${product.cost_code.toUpperCase()}</div>` : ''}
         </div>
@@ -153,7 +151,7 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                     line-height: 1;
                 }
 
-                .price-mrp, .price-disc {
+                .price-mrp {
                     font-size: 7pt;
                     font-weight: bold;
                     white-space: nowrap;
@@ -355,10 +353,12 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 pdf.setFontSize(6)
                 pdf.text(L.name, 25, 17.3, { align: 'center' })
 
+                // One price, centred. The pair used to sit either side of the middle and was
+                // the widest thing on the sticker - wide enough that the last characters ran
+                // past the die-cut on some printers.
                 pdf.setFont('helvetica', 'bold')
                 pdf.setFontSize(8)
-                pdf.text('MRP ' + L.mrp, 24, 21.4, { align: 'right' })
-                pdf.text('DISC ' + L.disc, 26, 21.4, { align: 'left' })
+                pdf.text('MRP ' + L.mrp, 25, 21.4, { align: 'center' })
 
                 if (L.code) {
                     pdf.setFont('courier', 'normal')
