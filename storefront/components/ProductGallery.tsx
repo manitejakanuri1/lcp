@@ -24,9 +24,13 @@ export function ProductView({ children }: { children: ReactNode }) {
     return <ShownPhoto.Provider value={{ index, show }}>{children}</ShownPhoto.Provider>;
 }
 
-/** One large photograph, with the rest as thumbnails beside it. */
+/**
+ * The large photograph. There is no thumbnail strip: one photograph is one colour, and the
+ * colour row beside the price already shows all of them under a heading that says so - a
+ * second strip of the same pictures was the same choice offered twice.
+ */
 export function ProductGallery({ images, name }: { images: string[]; name: string }) {
-    const { index, show } = useShownPhoto();
+    const { index } = useShownPhoto();
     const shown = images[Math.min(index, images.length - 1)] ?? images[0];
 
     return (
@@ -36,28 +40,14 @@ export function ProductGallery({ images, name }: { images: string[]; name: strin
                     key={shown}
                     src={shown}
                     alt={`${name} — view ${index + 1}`}
-                    width={520}
-                    height={650}
+                    width={693}
+                    height={1200}
+                    sizes="(max-width: 640px) 100vw, 640px"
+                    quality={92}
                     priority
                 />
             </div>
 
-            {images.length > 1 && (
-                <div className="pdp-thumbs">
-                    {images.map((image, i) => (
-                        <button
-                            key={image}
-                            type="button"
-                            className={i === index ? 'pdp-thumb on' : 'pdp-thumb'}
-                            aria-label={`Show view ${i + 1}`}
-                            aria-current={i === index}
-                            onClick={() => show(i)}
-                        >
-                            <Image src={image} alt="" width={96} height={120} />
-                        </button>
-                    ))}
-                </div>
-            )}
         </div>
     );
 }

@@ -6,6 +6,10 @@ const nextConfig: NextConfig = {
   // whole install.
   output: 'standalone',
   images: {
+    // Next 16 refuses any quality not listed here. A saree is judged on its weave and its
+    // zari, and the default 75 smears both; 92 is the figure the POS already keeps its own
+    // copies at.
+    qualities: [75, 92],
     remotePatterns: [
       // The shop's own photos. Every saree and colour picture is written here by the POS.
       { protocol: 'https', hostname: 'storage.googleapis.com' },

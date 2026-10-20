@@ -3,7 +3,7 @@
 // Every picture is kept twice:
 //
 //   products/<saree id>/original/<stamp>.jpg   what the phone took, barely touched
-//   products/<saree id>/web/<stamp>.webp       1200x1600 WebP, about 100-200 KB
+//   products/<saree id>/web/<stamp>.webp       up to 2400x3200 WebP, a few hundred KB
 //
 // The web copy is what the shop screens and the website show, so a page of forty sarees loads
 // on shop mobile data. The original is kept because a squeezed photo cannot be un-squeezed:
@@ -44,8 +44,12 @@ export async function storePhoto(folder, buffer) {
     const image = sharp(buffer).rotate();
 
     const [web, original] = await Promise.all([
-        image.clone().resize(1200, 1600, { fit: 'inside', withoutEnlargement: true })
-            .webp({ quality: 80, effort: 6 }).toBuffer(),
+        // 2400 on the long side, not 1200: a saree is looked at closely for its weave and its
+        // zari, and a phone camera gives 3000 or more, so the old ceiling threw away detail
+        // the shop had already captured. withoutEnlargement keeps a small picture small -
+        // the sarees taken from vendor colour sheets stay 1200 and nothing is stretched.
+        image.clone().resize(2400, 3200, { fit: 'inside', withoutEnlargement: true })
+            .webp({ quality: 88, effort: 6 }).toBuffer(),
         // Not a straight copy: EXIF rotation is applied so the kept photo is the right way up
         // too, and quality 92 is past the point an eye can tell from the camera's own file.
         image.clone().jpeg({ quality: 92, mozjpeg: true }).toBuffer(),
