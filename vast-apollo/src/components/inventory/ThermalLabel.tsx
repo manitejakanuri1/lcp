@@ -159,7 +159,8 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
 
                 .cost-code {
                     font-family: 'Courier New', Courier, monospace;
-                    font-size: 5pt;
+                    font-size: 8pt;
+                    font-weight: bold;
                     text-align: center;
                     letter-spacing: 0.5px;
                     line-height: 1;
@@ -361,9 +362,11 @@ export function printThermalLabels(products: Product[], shopName: string = 'LAKS
                 pdf.text('MRP ' + L.mrp, 25, 21.4, { align: 'center' })
 
                 if (L.code) {
-                    pdf.setFont('courier', 'normal')
-                    pdf.setFontSize(5)
-                    pdf.text('Code: ' + L.code, 25, 24.6, { align: 'center' })
+                    // The cost code is read off the sticker across a counter, so it is set as
+                    // large as the price. Bold courier, because O and 0 have to be told apart.
+                    pdf.setFont('courier', 'bold')
+                    pdf.setFontSize(8)
+                    pdf.text('Code: ' + L.code, 25, 24.9, { align: 'center' })
                 }
             }
 
