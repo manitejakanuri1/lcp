@@ -1687,7 +1687,10 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
             // listing behind it would be a lie the next screen would repeat.
             if (changes.on_website === true) {
                 const published = await publishToWebsite(client, req.params.id);
-                if (published.error) return { bare: null, failed: published.error };
+                // Thrown, not returned: returning would let the transaction commit, and the
+                // saree would be flagged as on the website with no listing behind it - which
+                // is exactly the lie this route exists to prevent.
+                if (published.error) throw Object.assign(new Error(published.error), { refused: true });
                 return { row, published };
             }
             if (changes.on_website === false) await unpublishFromWebsite(client, req.params.id);
@@ -1696,12 +1699,11 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
             // shop and the shelf drift apart until someone toggles the switch.
             if (changes.on_website === undefined && row.on_website) {
                 const published = await publishToWebsite(client, req.params.id);
-                if (published.error) return { bare: null, failed: published.error };
+                if (published.error) throw Object.assign(new Error(published.error), { refused: true });
             }
             return { row };
         });
 
-        if (result.failed) return res.status(400).json({ error: result.failed });
         if (result.bare) {
             return res.status(400).json({
                 error: `Add photos for ${result.bare.join(', ')} before showing it on the website`,
@@ -1710,6 +1712,7 @@ app.put('/api/website/products/:id', authenticateToken, requireStaff, async (req
         if (!result.row) return res.status(404).json({ error: 'Product not found' });
         res.json(result.row);
     } catch (err) {
+        if (err.refused) return res.status(400).json({ error: err.message });
         console.error('Website product update error:', err);
         res.status(500).json({ error: 'Failed to update product' });
     }
