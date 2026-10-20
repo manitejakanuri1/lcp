@@ -262,6 +262,20 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
             return
         }
 
+        // A picture with no colour name cannot be saved: the website groups sarees by colour
+        // and a nameless one would never appear under any of them. It used to be dropped in
+        // silence, so a six-picture sheet quietly became four colours and the only clue was
+        // the count afterwards. Say which ones, and save nothing until they are dealt with.
+        const unnamed = sheet.filter((p, i) => p.keep && !p.attachTo && !p.name.trim() && i !== sheetMain)
+        if (unnamed.length) {
+            const which = sheet
+                .map((p, i) => (unnamed.includes(p) ? i + 1 : 0))
+                .filter(Boolean)
+                .join(', ')
+            addToast('error', `Picture ${which} has no colour name. Type one, or tap the picture to untick it.`)
+            return
+        }
+
         let next = { ...product }
 
         if (main) {
@@ -417,7 +431,10 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                     <div>
                         <div className="flex items-center justify-between mb-3 gap-3">
                         <h3 className="text-sm font-semibold text-[var(--color-text)]">
-                            Colours ({product.product_colors.length})
+                            {/* The main photo carries a colour of its own, kept on the saree
+                                rather than as a row. Counting only the rows called a saree
+                                with five colours a saree with four. */}
+                            Colours ({product.product_colors.length + (product.color ? 1 : 0)})
                             {totalListed > 0 && (
                                 <span className="font-normal text-[var(--color-text-muted)]">
                                     {' '}· {gallery.filter((g) => g.pieces).map((g) => `${g.name} ${g.pieces}`).join(' + ')} = {totalListed} of {product.quantity} in stock
