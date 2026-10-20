@@ -601,6 +601,29 @@ app.get('/api/bills/:id', authenticateToken, requireStaff, async (req, res) => {
 // colour line off that colour's pieces and the saree's count together. The POS screen used
 // to do the plain lines itself in a second call, which left stock untouched whenever the
 // browser died after the bill was saved.
+/**
+ * How many pieces a website order is holding right now, for one colour or for a saree's own
+ * count. Expired holds are swept first: a shopper who walked away from the basket must not
+ * keep a saree off the counter shelf for ever, and nothing else in the shop runs often
+ * enough to do the sweeping.
+ *
+ * Returns 0 when the saree was never published - the usual case today - so the till behaves
+ * exactly as it did before for everything that is not on the website.
+ */
+const webHold = async (client, colorId, productId) => {
+    await client.query('delete from store.variant_reservations where expires_at <= now()');
+    const { rows } = await client.query(
+        `select coalesce(sum(r.qty), 0)::int as held
+           from store.variant_reservations r
+           join store.variant_stock_source s on s.variant_id = r.variant_id
+          where r.expires_at > now()
+            and ($1::uuid is not null and s.color_id = $1
+                 or $1::uuid is null and s.product_id = $2 and s.color_id is null)`,
+        [colorId, productId],
+    );
+    return rows[0].held;
+};
+
 app.post('/api/bills', authenticateToken, async (req, res) => {
     try {
         const { bill = {}, items } = req.body;
@@ -638,6 +661,20 @@ app.post('/api/bills', authenticateToken, async (req, res) => {
                         const err = new Error('COLOUR_NOT_FOUND');
                         throw err;
                     }
+
+                    // A web shopper part-way through paying is holding real pieces off this
+                    // shelf, and the till cannot see them. Selling those pieces at the counter
+                    // leaves the shop owing a saree it has already handed over. The hold is
+                    // short - the order either pays or lapses within minutes - so the counter
+                    // is told how many it may still sell rather than being stopped outright.
+                    const held = await webHold(client, item.color_id, null);
+                    if (colour.pieces - held < quantity) {
+                        const err = new Error('HELD_BY_WEB_ORDER');
+                        err.held = held;
+                        err.free = Math.max(0, colour.pieces - held);
+                        throw err;
+                    }
+
                     const piecesLeft = Math.max(0, (colour.pieces || 0) - quantity);
                     await client.query(
                         `update pos.product_colors
@@ -646,6 +683,18 @@ app.post('/api/bills', authenticateToken, async (req, res) => {
                           where id = $1`,
                         [item.color_id, piecesLeft],
                     );
+                }
+
+                // A saree sold without naming a colour comes off the saree's own count, and
+                // the main photo's colour is sold the same way, so the same hold applies.
+                if (!item.color_id) {
+                    const held = await webHold(client, null, product.id);
+                    if (product.quantity - held < quantity) {
+                        const err = new Error('HELD_BY_WEB_ORDER');
+                        err.held = held;
+                        err.free = Math.max(0, product.quantity - held);
+                        throw err;
+                    }
                 }
 
                 const left = Math.max(0, (product.quantity || 0) - quantity);
@@ -688,6 +737,13 @@ app.post('/api/bills', authenticateToken, async (req, res) => {
     } catch (err) {
         if (err.message === 'PRODUCT_NOT_FOUND') return res.status(404).json({ error: 'A saree on this bill no longer exists' });
         if (err.message === 'COLOUR_NOT_FOUND') return res.status(404).json({ error: 'A colour on this bill no longer exists' });
+        if (err.message === 'HELD_BY_WEB_ORDER') {
+            return res.status(409).json({
+                error: err.free > 0
+                    ? `${err.held} of these are held by a website order being paid for. You can sell ${err.free} now, or try again in a few minutes.`
+                    : 'These are all held by a website order being paid for. Try again in a few minutes.',
+            });
+        }
         console.error('Failed to create bill:', err);
         res.status(500).json({ error: 'Failed to create bill' });
     }
