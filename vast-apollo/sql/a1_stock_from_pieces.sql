@@ -71,6 +71,14 @@ LEFT JOIN LATERAL (
 ) held ON TRUE;
 
 -- ---- the four stock actions ----------------------------------------------------------
+-- Two of these change shape: reserve_inventory used to answer with a list of piece ids and
+-- now answers with a quantity, and a restock has to be told which colour came back. Postgres
+-- will not change a function's answer or its arguments in place, so those two are dropped by
+-- their exact old shape first. Nothing calls them - checkout is not built - so no caller
+-- breaks, and the old text is in git if it is ever wanted back.
+DROP FUNCTION IF EXISTS store.reserve_inventory(UUID, INT, UUID, INTERVAL);
+DROP FUNCTION IF EXISTS store.restock_order_inventory(UUID);
+
 -- Same names and the same job as before, counting pieces instead of rows. They return the
 -- number of pieces acted on rather than a list of piece ids, because with counts there is
 -- no such thing as "which piece".
