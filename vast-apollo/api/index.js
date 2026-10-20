@@ -1644,6 +1644,43 @@ app.post('/api/website/colors/split', authenticateToken, requireStaff, singlePho
     }
 });
 
+// Correct a colour's name or its piece count. Names get typed in a hurry and a count is
+// often a recount off the shelf, so both have to be fixable without deleting the colour and
+// starting again - deleting would take its photo and its barcode with it.
+app.patch('/api/website/colors/:id', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const colour = await one('select id from pos.product_colors where id = $1', [req.params.id]);
+        if (!colour) return res.status(404).json({ error: 'Colour not found' });
+
+        const renaming = req.body.color_name !== undefined;
+        const recounting = req.body.pieces !== undefined;
+        if (!renaming && !recounting) return res.status(400).json({ error: 'Nothing to change' });
+
+        // "red" and "RED" must stay the same colour for the website's colour filter.
+        const colorName = renaming ? titleCase(req.body.color_name) : null;
+        if (renaming && !colorName) return res.status(400).json({ error: 'Colour name is required' });
+
+        const pieces = recounting ? Math.max(0, parseInt(req.body.pieces) || 0) : null;
+
+        // The sku is left alone on a rename. It is printed on every sticker already stuck to a
+        // saree, and the scanner at the counter looks the colour up by exactly that code.
+        const row = await one(
+            `update pos.product_colors
+                set color_name = coalesce($2, color_name),
+                    pieces     = coalesce($3, pieces),
+                    status     = case when coalesce($3, pieces) <= 0 then 'sold' else 'available' end,
+                    updated_at = now()
+              where id = $1
+          returning *`,
+            [req.params.id, colorName, pieces],
+        );
+        res.json(row);
+    } catch (err) {
+        console.error('Edit colour error:', err);
+        res.status(500).json({ error: 'Failed to save the colour' });
+    }
+});
+
 // The photo for a colour created earlier without one (or a replacement shot).
 app.put('/api/website/colors/:id/photo', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
     try {

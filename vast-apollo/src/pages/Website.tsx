@@ -4,7 +4,7 @@ import { Button, Input, Modal } from '../components/ui'
 import { productsApi, websiteApi, type WebsiteProduct } from '../lib/api'
 import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
 import { useToast } from '../contexts/ToastContext'
-import { Globe, ImagePlus, Printer, Trash2 } from 'lucide-react'
+import { Globe, ImagePlus, Pencil, Printer, Trash2 } from 'lucide-react'
 import { printThermalLabels } from '../components/inventory/ThermalLabel'
 import { useAuth } from '../contexts/AuthContext'
 import type { Product } from '../lib/api'
@@ -193,6 +193,26 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         const res = await productsApi.uploadPhoto(product.id, file)
         onChange({ ...product, image_url: res.product?.image_url ?? res.image_url })
     }, 'Could not upload photo')
+
+    // The colour being corrected, if any: its id plus the two fields as typed so far.
+    const [editing, setEditing] = useState<{ id: string; name: string; pieces: string } | null>(null)
+
+    const saveEdit = () => run(async () => {
+        if (!editing) return
+        if (!editing.name.trim()) {
+            addToast('error', 'Type a colour name')
+            return
+        }
+        const saved = await websiteApi.editColor(editing.id, {
+            color_name: editing.name.trim(),
+            pieces: parseInt(editing.pieces) || 0,
+        })
+        onChange({
+            ...product,
+            product_colors: product.product_colors.map((c) => (c.id === saved.id ? saved : c)),
+        })
+        setEditing(null)
+    }, 'Could not save the colour')
 
     const addColor = () => run(async () => {
         if (!colorName.trim()) {
@@ -445,19 +465,42 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                                                 </div>
                                             )}
                                         </div>
+                                        {editing?.id === c.id ? (
+                                            <div className="px-3 py-2 space-y-2">
+                                                <Input label="Colour" list="color-suggestions" autoFocus
+                                                    value={editing.name}
+                                                    onChange={(e) => setEditing({ ...editing, name: e.target.value })} />
+                                                <Input label="Pieces" type="number" min="0"
+                                                    value={editing.pieces}
+                                                    onChange={(e) => setEditing({ ...editing, pieces: e.target.value })} />
+                                                <div className="flex gap-2">
+                                                    <Button type="button" fullWidth disabled={busy} onClick={saveEdit}>Save</Button>
+                                                    <Button type="button" variant="secondary" disabled={busy}
+                                                        onClick={() => setEditing(null)}>Cancel</Button>
+                                                </div>
+                                            </div>
+                                        ) : (
                                         <div className="flex items-center justify-between px-3 py-2">
                                             <span className="text-sm font-medium text-[var(--color-text)] truncate">
                                                 {c.color_name}{c.pieces ? ` · ${c.pieces} pcs` : ''}
                                                 {c.sku && <span className="block font-mono text-xs text-[var(--color-text-muted)]">{c.sku}</span>}
                                             </span>
                                             {canEdit && (
-                                                <button type="button" title="Remove colour" disabled={busy}
-                                                    onClick={() => removeColor(c.id)}
-                                                    className="p-1 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded">
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
+                                                <span className="flex items-center shrink-0">
+                                                    <button type="button" title="Edit colour and pieces" disabled={busy}
+                                                        onClick={() => setEditing({ id: c.id, name: c.color_name, pieces: c.pieces ? String(c.pieces) : '' })}
+                                                        className="p-1 text-[var(--color-text-muted)] hover:text-[var(--color-primary)] hover:bg-indigo-500/10 rounded">
+                                                        <Pencil className="w-4 h-4" />
+                                                    </button>
+                                                    <button type="button" title="Remove colour" disabled={busy}
+                                                        onClick={() => removeColor(c.id)}
+                                                        className="p-1 text-[var(--color-danger-text)] hover:bg-red-500/10 rounded">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </span>
                                             )}
                                         </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>

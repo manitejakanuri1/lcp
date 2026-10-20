@@ -650,6 +650,13 @@ export const websiteApi = {
         return (data.photos || []) as string[];
     },
 
+    // A typo in the name, or a recount off the shelf. The colour keeps its photo and its sku.
+    editColor: async (colorId: string, changes: { color_name?: string; pieces?: number }) =>
+        request<ProductColor>(`/website/colors/${colorId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(changes),
+        }),
+
     removeColor: async (colorId: string) =>
         request<{ message: string }>(`/website/colors/${colorId}`, { method: 'DELETE' }),
 };
