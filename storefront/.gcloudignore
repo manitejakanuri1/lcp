@@ -1,0 +1,6 @@
+# What not to upload to Cloud Build. Without this file gcloud falls back to .gitignore, which
+# hides every .env file - and .env.production carries the addresses of the 37 functions that
+# the browser bundle is built against, so the build came out pointing at localhost.
+node_modules
+.next
+.git

@@ -1,0 +1,118 @@
+@import 'tailwindcss';
+
+/* Brand tokens lifted from the Stitch design reference
+   (LakshmiSareeMandir_UIdesign/stitch_e_commerce_landing_page/code.html)
+   "Heritage Regal Handloom" theme. Used by the shared Header/Footer and the
+   homepage section components. */
+@theme {
+  --color-primary: #4e051a;
+  --color-primary-container: #6b1d2f;
+  --color-secondary: #316852;
+  --color-royal-emerald: #134e39;
+  --color-antique-gold: #d4af37;
+  --color-zari-glow: #b8860b;
+  --color-pale-gold: #f6eed9;
+  --color-tertiary-container: #cca72f;
+  --color-on-tertiary-container: #4e3d00;
+  --color-warm-ivory: #faf7f0;
+  --color-background: #fcf9f2;
+  --color-heritage-black: #171717;
+  --color-crimson-accent: #e83863;
+  --color-surface-variant: #e5e2db;
+  --color-surface-container-low: #f6f3ec;
+  --color-on-surface-variant: #544244;
+  --color-outline: #877274;
+
+  --font-display: var(--font-playfair), 'Playfair Display', serif;
+  --font-body: var(--font-dm-sans), 'DM Sans', sans-serif;
+}
+
+/* Minimal/unstyled scaffold — structure and legibility only. This still backs
+   the collections/product/policy pages, which are a separate visual pass. */
+
+body { font: 15px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; color: #1a1a1a; background: #fff; }
+
+.container { width: min(1200px, 100% - 48px); margin-inline: auto; }
+
+/* breadcrumbs */
+.breadcrumbs ol { display: flex; gap: 6px; font-size: 13px; color: #666; margin: 16px 0; }
+.breadcrumbs li:not(:last-child)::after { content: '/'; margin-inline-start: 6px; }
+
+/* product grid / cards — shared by the homepage carousels AND the
+   collections/product pages; left as the placeholder style deliberately
+   (restyling it is out of scope for the landing-page pass). */
+.product-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 24px; margin: 24px 0; }
+.product-rail { display: grid; grid-auto-flow: column; grid-auto-columns: 220px; gap: 16px; overflow-x: auto; padding-bottom: 8px; margin: 16px 0; }
+.shelf-mini .product-rail { grid-auto-columns: 45%; }
+.product-card { position: relative; }
+.product-card-image { position: relative; display: block; }
+/* Contain, not cover: a saree photo is about 3 wide to 5 tall and the model's face is in the
+   top tenth, so filling a 4:5 box cuts the head off. */
+.product-card-image img { border-radius: 6px; aspect-ratio: 3/5; object-fit: contain; background: #faf8f5; }
+.badge { position: absolute; top: 8px; left: 8px; background: #111; color: #fff; font-size: 10px; padding: 3px 8px; border-radius: 4px; text-transform: uppercase; }
+.badge.sold-out { left: auto; right: 8px; background: #999; }
+.wishlist-toggle { position: absolute; top: 8px; right: 8px; opacity: 0.5; }
+.rating { font-size: 12px; color: #888; margin-top: 8px; }
+.price { font-weight: 600; margin-top: 4px; }
+.price s { margin-inline-start: 8px; font-weight: 400; color: #999; }
+.empty-state { padding: 40px 0; text-align: center; color: #777; }
+
+/* collection filters + pagination */
+.collection-filters { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-end; margin: 16px 0; }
+.filter-group { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.filter-group select { padding: 6px 8px; border: 1px solid #ccc; border-radius: 4px; }
+.clear-filters { align-self: flex-end; padding: 6px 12px; border: 1px solid #ccc; border-radius: 4px; background: #f5f5f5; }
+.pagination { display: flex; justify-content: center; gap: 24px; align-items: center; margin: 32px 0; }
+
+/* product detail page */
+.pdp-layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; margin: 16px 0 48px; padding: 0 24px; }
+.pdp-gallery { display: grid; gap: 8px; }
+.pdp-gallery img { border-radius: 6px; aspect-ratio: 3/5; object-fit: contain; background: #faf8f5; width: 100%; height: auto; }
+.psub { color: #777; margin-bottom: 8px; }
+.stock-status { margin: 12px 0; font-size: 13px; color: #555; }
+.option-group { margin: 16px 0; }
+.opt-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #888; margin-bottom: 6px; }
+.swatches { display: flex; gap: 8px; }
+/* The shop records a colour by name and by photograph, never as a hex value, so a plain
+   coloured dot came out white on white and six colours looked like one. The swatch shows the
+   colour's own photograph instead, which tells a shopper more than any dot could. */
+.swatch { width: 44px; height: 56px; border-radius: 4px; border: 2px solid #ddd; padding: 0;
+          background-size: cover; background-position: center top; background-color: #faf8f5;
+          cursor: pointer; }
+.swatch.on { border-color: #111; }
+.quantity-stepper { display: inline-flex; align-items: center; gap: 12px; border: 1px solid #ccc; border-radius: 4px; padding: 4px 12px; }
+.pdp-actions { display: flex; gap: 12px; margin-top: 20px; }
+.btn-primary, .btn-secondary { padding: 10px 20px; border-radius: 4px; border: 1px solid #111; }
+.btn-primary { background: #111; color: #fff; }
+.btn-primary:disabled { background: #ccc; border-color: #ccc; cursor: not-allowed; }
+.btn-secondary { background: #fff; }
+details { border-top: 1px solid #eee; padding: 12px 0; }
+details summary { cursor: pointer; font-weight: 600; }
+
+/* policy pages */
+.policy-page { max-width: 760px; padding: 24px; }
+.policy-toc ul { display: flex; flex-wrap: wrap; gap: 16px; margin: 16px 0 32px; }
+.policy-toc a { font-size: 13px; text-decoration: underline; }
+.policy-page section { padding: 0; margin-bottom: 24px; }
+.policy-page section p { margin-top: 8px; }
+.muted { color: #777; font-size: 13px; }
+.policy-contact { margin-top: 32px; font-size: 13px; }
+
+.category-header { padding: 24px; }
+
+/* Account-area tokens (wishlist + orders pages), from
+   LakshmiSareeMandir_UIdesign/wishlist and account_management_order_history. */
+@theme {
+  --color-maroon: #46081f;
+  --color-maroon-dark: #5c0928;
+  --color-gold: #b08048;
+  --color-gold-dark: #996d39;
+  --color-gold-soft: #f3dec0;
+  --color-cream: #f7f0e3;
+  --color-cream-card: #faf5ed;
+  --color-cream-deep: #f2e8d7;
+  --color-line: #d8c6b5;
+  --color-ink: #21151a;
+  --color-muted: #6f5e64;
+  --color-berry: #8a1642;
+}
