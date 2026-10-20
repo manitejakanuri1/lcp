@@ -1077,9 +1077,16 @@ def photo_blocks(page):
 
 
 def crop_jpeg(image):
-    """One crop, small enough to send to a browser."""
+    """One crop, as large as the sheet actually holds.
+
+    The ceiling used to be 1200 on the long side, which threw away about a third of
+    what a vendor sheet carries - the sheets measured hold pictures around 1240x1699,
+    and a saree is judged on its weave and its zari. The crops travel to the browser as
+    data in the reply, so the ceiling is still there, just high enough not to bite: a
+    sheet scanned at a greater resolution than this is squeezed rather than refused.
+    """
     height, width = image.shape[:2]
-    scale = 1200 / max(height, width)
+    scale = 2400 / max(height, width)
 
     if scale < 1:
         image = cv2.resize(
@@ -1088,7 +1095,7 @@ def crop_jpeg(image):
             interpolation=cv2.INTER_AREA,
         )
 
-    return cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+    return cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])[1].tobytes()
 
 
 @app.post("/split")
