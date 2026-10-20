@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
-import Image from 'next/image';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { getProduct, getRelatedProducts } from '@/lib/cloud-functions/catalog';
 import { CloudFunctionError } from '@/lib/cloud-functions/client';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { VariantSelector } from '@/components/VariantSelector';
+import { ProductGallery, ProductView } from '@/components/ProductGallery';
 import { ProductRail } from '@/components/ProductRail';
 
 export const revalidate = 300;
@@ -77,12 +77,11 @@ export default async function ProductPage({ params }: PageProps) {
         }}
       />
 
+      {/* The gallery and the colour buttons sit in different columns but show the same
+          thing, so they share one piece of state from here down. */}
+      <ProductView>
       <div className="pdp-layout">
-        <div className="pdp-gallery">
-          {product.images.map((image, index) => (
-            <Image key={image} src={image} alt={`${product.name} — view ${index + 1}`} width={520} height={650} priority={index === 0} />
-          ))}
-        </div>
+        <ProductGallery images={product.images} name={product.name} />
 
         <div className="pdp-info">
           <h1>{product.name}</h1>
@@ -108,6 +107,7 @@ export default async function ProductPage({ params }: PageProps) {
           </details>
         </div>
       </div>
+      </ProductView>
 
       {related.length > 0 && (
         <section>

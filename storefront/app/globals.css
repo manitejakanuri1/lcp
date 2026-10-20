@@ -66,8 +66,27 @@ body { font: 15px/1.6 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; co
 
 /* product detail page */
 .pdp-layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 32px; margin: 16px 0 48px; padding: 0 24px; }
-.pdp-gallery { display: grid; gap: 8px; }
-.pdp-gallery img { border-radius: 6px; aspect-ratio: 3/5; object-fit: contain; background: #faf8f5; width: 100%; height: auto; }
+/* One photograph at a time, with the rest as thumbnails beside it. Six full-height saree
+   photographs stacked down the page made a customer scroll past the whole stock of one
+   saree before reaching the price. */
+.pdp-gallery { display: grid; grid-template-columns: 1fr 84px; gap: 10px; align-items: start; }
+.pdp-gallery-main img { border-radius: 6px; aspect-ratio: 3/5; object-fit: contain;
+                        background: #faf8f5; width: 100%; height: auto; }
+.pdp-thumbs { display: grid; gap: 8px; max-height: 100%; overflow-y: auto; }
+.pdp-thumb { padding: 0; border: 2px solid #ddd; border-radius: 4px; background: #faf8f5;
+             cursor: pointer; overflow: hidden; line-height: 0; }
+.pdp-thumb.on { border-color: #111; }
+.pdp-thumb img { width: 100%; height: auto; aspect-ratio: 3/5; object-fit: contain; }
+
+/* On a phone the thumbnails go under the photograph as a row that scrolls sideways: a
+   column beside it would leave the main picture too narrow to see. */
+@media (max-width: 640px) {
+  /* The page kept two columns at every width, so on a phone the photograph was squeezed
+     into a sliver and then to nothing at all - the saree simply was not on the page. */
+  .pdp-layout { grid-template-columns: 1fr; gap: 20px; padding: 0 16px; }
+  .pdp-gallery { grid-template-columns: 1fr; }
+  .pdp-thumbs { grid-auto-flow: column; grid-auto-columns: 64px; overflow-x: auto; overflow-y: hidden; }
+}
 .psub { color: #777; margin-bottom: 8px; }
 .stock-status { margin: 12px 0; font-size: 13px; color: #555; }
 .option-group { margin: 16px 0; }

@@ -1,40 +1,52 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { getProductPriceStock } from '@/lib/cloud-functions/catalog';
 import { addCartItem, updateCartItem } from '@/lib/cloud-functions/cart';
 import { MAX_LINE_QUANTITY, useCartWishlist } from '@/components/shared/CartWishlistProvider';
 import { formatPrice } from '@/lib/format';
+import { useShownPhoto } from '@/components/ProductGallery';
 import type { Product, ProductVariantSummary } from '@/lib/types';
 
 export function VariantSelector({ product }: { product: Product }) {
-  const [selectedVariantId, setSelectedVariantId] = useState(product.variants[0].id);
   const [quantity, setQuantity] = useState(1);
   const [live, setLive] = useState<ProductVariantSummary | null>(null);
   const [isPending, startTransition] = useTransition();
   const { setCartQuantity, addToCart, cartQuantityOf, toggleWishlist, isWishlisted } = useCartWishlist();
   const [cartMessage, setCartMessage] = useState<{ text: string; ok: boolean } | null>(null);
+  const { index: shownPhoto, show: showPhoto } = useShownPhoto();
   const [adding, startAdding] = useTransition();
 
-  const selectedVariant = product.variants.find((variant) => variant.id === selectedVariantId) ?? product.variants[0];
+  // The chosen colour IS the photograph on show. Photographs are published one per colour and
+  // in colour order, so one number says both which colour is being bought and which picture
+  // is large - and a thumbnail cannot then highlight a colour the bag would not receive.
+  const chosen = Math.min(shownPhoto, product.variants.length - 1);
+  const selectedVariant = product.variants[chosen];
+  const selectedVariantId = selectedVariant.id;
   const price = live?.price ?? selectedVariant.price;
   const discountPrice = live ? live.discountPrice : selectedVariant.discountPrice ?? null;
   const stock = live?.stock ?? selectedVariant.stock;
   const inStock = live ? live.inStock : stock > 0;
 
-  function selectVariant(variantId: string) {
-    setSelectedVariantId(variantId);
-    setLive(null);
+  // Whatever moved the selection - a colour button or a thumbnail - the price and stock on
+  // screen are re-checked against the shop for the colour now chosen.
+  useEffect(() => {
+    let current = true;
     startTransition(async () => {
+      // Cleared inside the transition rather than straight away: React objects to a state
+      // change made in the body of an effect, and the old figure is right until the new one
+      // lands anyway.
+      setLive(null);
       try {
-        const result = await getProductPriceStock(product.slug, variantId);
-        setLive(result.variants[0] ?? null);
+        const result = await getProductPriceStock(product.slug, selectedVariantId);
+        if (current) setLive(result.variants[0] ?? null);
       } catch {
-        // Live re-check failed — fall back to the statically-cached price/stock already shown.
+        // Live re-check failed - fall back to the statically-cached price and stock.
       }
     });
-  }
+    return () => { current = false; };
+  }, [product.slug, selectedVariantId]);
 
   // The server re-prices and stock-caps the add; the stored line uses ITS price, not the one on screen.
   // The check covers the line's NEW TOTAL (already in the bag + this add), so repeated adds cannot
@@ -79,11 +91,11 @@ export function VariantSelector({ product }: { product: Product }) {
         <div className="option-group">
           <p className="opt-label">Colour</p>
           <div className="swatches">
-            {product.variants.map((variant, index) => (
+            {product.variants.map((variant, i) => (
               <button
                 key={variant.id}
                 type="button"
-                className={variant.id === selectedVariantId ? 'swatch on' : 'swatch'}
+                className={i === shownPhoto ? 'swatch on' : 'swatch'}
                 // The shop photographs every colour but never records a hex value, so a
                 // coloured dot would be white. The colour's own photograph is both available
                 // and more use to a shopper: images are published one per variant, in variant
@@ -91,13 +103,13 @@ export function VariantSelector({ product }: { product: Product }) {
                 style={
                   variant.colorHex
                     ? { backgroundColor: variant.colorHex }
-                    : product.images[index]
-                      ? { backgroundImage: `url(${product.images[index]})` }
+                    : product.images[i]
+                      ? { backgroundImage: `url(${product.images[i]})` }
                       : undefined
                 }
                 aria-label={variant.color}
                 title={variant.color}
-                onClick={() => selectVariant(variant.id)}
+                onClick={() => showPhoto(i)}
               />
             ))}
           </div>
