@@ -19,6 +19,26 @@ export async function login(email: string, password: string): Promise<LoginResul
   return result;
 }
 
+export interface Registration {
+  email: string;
+  password: string;
+  firstName: string;
+  lastName?: string;
+  phone?: string;
+  marketingOptIn?: boolean;
+}
+
+/**
+ * Interim customer sign-up. Errors: 400 VALIDATION_ERROR (email already registered, password
+ * too short), 400 INVALID_EMAIL / INVALID_PHONE, 429 TOO_MANY_REQUESTS. A new account is
+ * signed in straight away, so the token is stored exactly as a login stores it.
+ */
+export async function register(details: Registration): Promise<LoginResult> {
+  const result = await callFunction<LoginResult>('auth-register', { method: 'POST', body: details });
+  setAccessToken(result.accessToken, result.expiresIn);
+  return result;
+}
+
 export function logout(): void {
   clearAccessToken();
 }
