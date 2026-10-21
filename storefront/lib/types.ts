@@ -115,6 +115,7 @@ export interface Policy {
 }
 
 export type HomepageBlock =
+  | { id: string; type: 'hero-banner'; image: string; alt: string; ctaHref?: string }
   | { id: string; type: 'six-moods'; eyebrow: string; title: string; note: string; moods: { label: string; image: string; href: string }[] }
   | { id: string; type: 'brand-story'; eyebrow: string; title: string; ctaLabel: string; ctaHref: string; products: string[] }
   | {

@@ -1,4 +1,5 @@
 import type { HomepageBlock } from '@/lib/types';
+import { HeroBanner } from './HeroBanner';
 import { SixMoods } from './SixMoods';
 import { BrandStory } from './BrandStory';
 import { ProductCarousel } from './ProductCarousel';
@@ -17,6 +18,8 @@ import { CardStack } from './CardStack';
  */
 export function SectionRenderer({ block }: { block: HomepageBlock }) {
   switch (block.type) {
+    case 'hero-banner':
+      return <HeroBanner block={block} />;
     case 'six-moods':
       return <SixMoods block={block} />;
     case 'brand-story':
