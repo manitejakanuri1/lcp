@@ -1956,6 +1956,161 @@ app.delete('/api/website/colors/:id', authenticateToken, requireStaff, async (re
     }
 });
 
+// ================== THE WEBSITE ITSELF ==================
+// Which sarees sit on which shelf, which home page sections are shown, and the wording in
+// the header and the footer. Until this screen existed all three could only be changed in
+// SQL by whoever held the database password, which is why the home page still advertised
+// shelves holding nothing and claimed certifications the shop does not have.
+
+// The listing a POS saree was published as. Found through the stock links rather than by
+// rebuilding the slug, so a saree renamed in the shop still finds its own listing.
+const listingFor = async (client, productId) => (await client.query(
+    `select distinct p.id, p.slug, p.name
+       from store.variant_stock_source s
+       join store.product_variants v on v.id = s.variant_id
+       join store.products p on p.id = v.product_id
+      where s.product_id = $1`,
+    [productId],
+)).rows[0] || null;
+
+app.get('/api/website/site', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        // Shelves carry a count so the shop can see at a glance which ones a shopper would
+        // find empty - that is the whole reason the home page looked broken.
+        const shelves = await many(
+            `select c.slug, c.title, c.sort_order,
+                    count(pc.product_id) filter (where p.status = 'published')::int as products
+               from store.categories c
+               left join store.product_categories pc on pc.category_id = c.id
+               left join store.products p on p.id = pc.product_id
+              where c.status = 'published'
+              group by c.slug, c.title, c.sort_order
+              order by c.sort_order`,
+        );
+
+        // payload is a different shape per section type, so only the few fields the screen
+        // shows are lifted out of it; the rest stays untouched in the database.
+        const sections = await many(
+            `select id, type, position, is_active,
+                    payload->>'title' as title,
+                    payload->>'collectionSlug' as collection_slug
+               from store.cms_blocks
+              order by position`,
+        );
+
+        const settings = await many('select key, value, description from store.site_settings order by key');
+
+        // Every saree the shop has put on the website, with the shelves it sits on now.
+        const live = await many(
+            `select p.id, p.sku, p.saree_name, p.image_url,
+                    coalesce((
+                      select array_agg(distinct c.slug)
+                        from store.variant_stock_source s
+                        join store.product_variants v on v.id = s.variant_id
+                        join store.product_categories pc on pc.product_id = v.product_id
+                        join store.categories c on c.id = pc.category_id
+                       where s.product_id = p.id), '{}') as shelves
+               from pos.products p
+              where p.on_website and p.status = 'available'
+              order by p.saree_name`,
+        );
+
+        res.json({ shelves, sections, settings, products: live });
+    } catch (err) {
+        console.error('Website site read error:', err);
+        res.status(500).json({ error: 'Failed to load the website settings' });
+    }
+});
+
+// Which shelves one saree sits on. Sent whole rather than one shelf at a time: the screen
+// holds the full set of ticks, and replacing them is one statement instead of working out
+// which ticks changed.
+app.put('/api/website/products/:id/shelves', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const asked = [...new Set((req.body.shelves || []).filter((slug) => typeof slug === 'string'))];
+        if (!asked.length) return res.status(400).json({ error: 'A saree has to sit on at least one shelf' });
+
+        const result = await tx(async (client) => {
+            const listing = await listingFor(client, req.params.id);
+            if (!listing) return { missing: true };
+
+            const shelves = (await client.query(
+                "select id, slug from store.categories where slug = any($1) and status = 'published'",
+                [asked],
+            )).rows;
+            const unknown = asked.filter((slug) => !shelves.some((shelf) => shelf.slug === slug));
+            if (unknown.length) return { unknown };
+
+            await client.query('delete from store.product_categories where product_id = $1', [listing.id]);
+            // The first shelf ticked is the primary one: it is the shelf the website shows in
+            // the breadcrumb above the saree's name.
+            for (const [index, shelf] of shelves.entries()) {
+                await client.query(
+                    'insert into store.product_categories (product_id, category_id, is_primary) values ($1, $2, $3)',
+                    [listing.id, shelf.id, index === 0],
+                );
+            }
+            return { shelves: shelves.map((shelf) => shelf.slug) };
+        });
+
+        if (result.missing) return res.status(404).json({ error: 'That saree is not on the website yet' });
+        if (result.unknown) return res.status(400).json({ error: `No such shelf: ${result.unknown.join(', ')}` });
+        res.json(result);
+    } catch (err) {
+        console.error('Website shelves error:', err);
+        res.status(500).json({ error: 'Failed to save the shelves' });
+    }
+});
+
+// A home page section switched on or off. Nothing else about it can be changed here: each
+// type has its own renderer on the website, and its payload is not the shop's to edit yet.
+app.patch('/api/website/sections/:id', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        if (typeof req.body.is_active !== 'boolean') return res.status(400).json({ error: 'is_active must be true or false' });
+        const row = await one(
+            'update store.cms_blocks set is_active = $2 where id = $1 returning id, type, position, is_active',
+            [req.params.id, req.body.is_active],
+        );
+        if (!row) return res.status(404).json({ error: 'Section not found' });
+        res.json(row);
+    } catch (err) {
+        console.error('Website section error:', err);
+        res.status(500).json({ error: 'Failed to change the section' });
+    }
+});
+
+// The header and footer wording. Only keys that already exist can be written: the website
+// reads a fixed set of them, so a new key would be stored and never shown.
+app.put('/api/website/settings', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const changes = Object.entries(req.body || {}).filter(([, value]) => value !== null && value !== undefined);
+        if (!changes.length) return res.status(400).json({ error: 'Nothing to save' });
+
+        const result = await tx(async (client) => {
+            const known = (await client.query('select key from store.site_settings')).rows.map((row) => row.key);
+            const unknown = changes.map(([key]) => key).filter((key) => !known.includes(key));
+            if (unknown.length) return { unknown };
+
+            for (const [key, value] of changes) {
+                // updated_by is a store.staff_users id, and the person typing is a POS user
+                // with no row there, so it is left alone rather than filled with a name that
+                // would not fit the column. Who changed a line is not yet recorded anywhere.
+                await client.query(
+                    'update store.site_settings set value = $2, updated_at = now() where key = $1',
+                    [key, JSON.stringify(value)],
+                );
+            }
+            return { saved: changes.map(([key]) => key) };
+        });
+
+        if (result.unknown) return res.status(400).json({ error: `The website does not read: ${result.unknown.join(', ')}` });
+        res.json(result);
+    } catch (err) {
+        console.error('Website settings error:', err);
+        res.status(500).json({ error: 'Failed to save the wording' });
+    }
+});
+
 // ================== THE SCREENS ==================
 // The built screens are served by this same service, so the shop has one address and the
 // session cookie is same-site by construction: no CORS, no third-party cookie rules, and

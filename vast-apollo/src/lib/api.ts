@@ -592,6 +592,65 @@ export interface WebsiteProduct {
     product_colors: ProductColor[];
 }
 
+export interface SiteShelf {
+    slug: string;
+    title: string;
+    sort_order: number;
+    products: number;
+}
+
+export interface SiteSection {
+    id: string;
+    type: string;
+    position: number;
+    is_active: boolean;
+    title: string | null;
+    collection_slug: string | null;
+}
+
+export interface SiteSetting {
+    key: string;
+    value: unknown;
+    description: string | null;
+}
+
+export interface SiteProduct {
+    id: string;
+    sku: string;
+    saree_name: string | null;
+    image_url: string | null;
+    shelves: string[];
+}
+
+export interface SitePayload {
+    shelves: SiteShelf[];
+    sections: SiteSection[];
+    settings: SiteSetting[];
+    products: SiteProduct[];
+}
+
+export const siteApi = {
+    get: async () => request<SitePayload>('/website/site'),
+
+    setShelves: async (productId: string, shelves: string[]) =>
+        request<{ shelves: string[] }>(`/website/products/${productId}/shelves`, {
+            method: 'PUT',
+            body: JSON.stringify({ shelves }),
+        }),
+
+    setSection: async (sectionId: string, isActive: boolean) =>
+        request<SiteSection>(`/website/sections/${sectionId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: isActive }),
+        }),
+
+    saveSettings: async (changes: Record<string, unknown>) =>
+        request<{ saved: string[] }>('/website/settings', {
+            method: 'PUT',
+            body: JSON.stringify(changes),
+        }),
+};
+
 export const websiteApi = {
     getProducts: async (status: 'todo' | 'live') =>
         request<WebsiteProduct[]>(`/website/products?status=${status}`),
