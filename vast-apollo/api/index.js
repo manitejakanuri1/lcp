@@ -1624,7 +1624,7 @@ const publishToWebsite = async (client, productId) => {
         return { error: 'Add at least one colour with a photo before showing it on the website' };
     }
 
-    const category = (await client.query('select id from store.categories where slug = $1', [saree.saree_type])).rows[0];
+    const category = (await client.query('select id, title from store.categories where slug = $1', [saree.saree_type])).rows[0];
     if (!category) return { error: `The category "${saree.saree_type}" does not exist on the website yet` };
 
     // The sku is the one printed on the sticker, so the slug built from it stays stable
@@ -1636,22 +1636,6 @@ const publishToWebsite = async (client, productId) => {
     // free to set them equal.
     const discount = sale > 0 && sale < price ? sale : null;
 
-    const listing = (await client.query(
-        `insert into store.products (slug, name, fabric, status, published_at)
-         values ($1, $2, $3, 'published', now())
-         on conflict (slug) do update
-            set name = excluded.name, fabric = excluded.fabric,
-                status = 'published', published_at = coalesce(store.products.published_at, now())
-         returning id`,
-        [slug, saree.saree_name || saree.sku, saree.material && saree.material !== 'Not specified' ? saree.material : 'Saree'],
-    )).rows[0];
-
-    // Colours are rebuilt rather than patched: a colour deleted in the shop has to leave the
-    // website too, and matching them up one by one would be more code for the same answer.
-    // The stock links go with them; nothing in pos.* is touched by the delete.
-    await client.query('delete from store.product_variants where product_id = $1', [listing.id]);
-    await client.query('delete from store.product_images where product_id = $1', [listing.id]);
-
     const rows = [
         // The main photo's own colour, when the shop has given it one and some pieces.
         ...(saree.color && saree.main_color_pieces > 0
@@ -1659,6 +1643,43 @@ const publishToWebsite = async (client, productId) => {
             : []),
         ...withPhotos.map((c) => ({ colorId: c.id, name: c.color_name, sku: c.sku || `${saree.sku}-${c.id.slice(0, 4)}`, image: c.image_url })),
     ];
+
+    // The shop types no prose, so the listing's words are written from what it already knows:
+    // the shelf the saree was put on, the colours that have a photo, and the code on its
+    // sticker. Nothing about length, blouse piece or weave is invented - a shopper who finds
+    // one of those wrong stops believing the rest of the page.
+    const title = saree.saree_name || saree.sku;
+    const colourNames = rows.map((row) => row.name);
+    const fabric = saree.material && saree.material !== 'Not specified' ? saree.material : category.title;
+    const description = [
+        `${title} is a ${category.title.toLowerCase()} saree from Lakshmi Sarees, Rajahmundry.`,
+        colourNames.length > 1
+            ? `It comes in ${colourNames.length} colours - ${colourNames.join(', ')} - and each colour is photographed on this page, so the shade chosen is the shade sent.`
+            : `It comes in ${colourNames[0]}, photographed on this page.`,
+        `Shop code ${saree.sku}.`,
+    ].join(' ');
+    // Care advice belongs to the cloth rather than to one saree, so it is chosen by the shelf
+    // instead of being typed in again for every listing.
+    const care = /silk|pattu|fancy/.test(saree.saree_type)
+        ? 'Dry clean only. Do not wring or brush the zari. Keep the saree folded in a soft cotton cloth away from direct sunlight, and refold it every few months so the creases do not set in one place.'
+        : 'Hand wash separately in cold water and dry in the shade. Warm iron on the reverse side.';
+
+    const listing = (await client.query(
+        `insert into store.products (slug, name, subtitle, fabric, description, care_instructions, status, published_at)
+         values ($1, $2, $3, $4, $5, $6, 'published', now())
+         on conflict (slug) do update
+            set name = excluded.name, subtitle = excluded.subtitle, fabric = excluded.fabric,
+                description = excluded.description, care_instructions = excluded.care_instructions,
+                status = 'published', published_at = coalesce(store.products.published_at, now())
+         returning id`,
+        [slug, title, category.title, fabric, description, care],
+    )).rows[0];
+
+    // Colours are rebuilt rather than patched: a colour deleted in the shop has to leave the
+    // website too, and matching them up one by one would be more code for the same answer.
+    // The stock links go with them; nothing in pos.* is touched by the delete.
+    await client.query('delete from store.product_variants where product_id = $1', [listing.id]);
+    await client.query('delete from store.product_images where product_id = $1', [listing.id]);
 
     for (const [index, row] of rows.entries()) {
         const variant = (await client.query(
@@ -1677,7 +1698,7 @@ const publishToWebsite = async (client, productId) => {
         await client.query(
             `insert into store.product_images (product_id, variant_id, url, alt, position)
              values ($1, $2, $3, $4, $5)`,
-            [listing.id, variant.id, row.image, `${saree.saree_name || saree.sku} - ${row.name}`, index],
+            [listing.id, variant.id, row.image, `${title} - ${row.name}`, index],
         );
     }
 

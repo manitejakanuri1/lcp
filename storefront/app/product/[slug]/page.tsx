@@ -86,7 +86,8 @@ export default async function ProductPage({ params }: PageProps) {
         <div className="pdp-info">
           <h1>{product.name}</h1>
           <p className="psub">{product.subtitle}</p>
-          <p className="rating">★ {product.rating.toFixed(1)}</p>
+          {/* See ProductCard: an unrated saree shows no star at all. */}
+          {product.rating > 0 && <p className="rating">★ {product.rating.toFixed(1)}</p>}
 
           <VariantSelector product={product} />
 

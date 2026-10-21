@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getProductPriceStock } from '@/lib/cloud-functions/catalog';
 import { addCartItem, updateCartItem } from '@/lib/cloud-functions/cart';
 import { MAX_LINE_QUANTITY, useCartWishlist } from '@/components/shared/CartWishlistProvider';
-import { formatPrice } from '@/lib/format';
+import { discountPercent, formatPrice } from '@/lib/format';
 import { useShownPhoto } from '@/components/ProductGallery';
 import type { Product, ProductVariantSummary } from '@/lib/types';
 
@@ -28,6 +28,7 @@ export function VariantSelector({ product }: { product: Product }) {
   const discountPrice = live ? live.discountPrice : selectedVariant.discountPrice ?? null;
   const stock = live?.stock ?? selectedVariant.stock;
   const inStock = live ? live.inStock : stock > 0;
+  const off = discountPercent(price, discountPrice);
 
   // Whatever moved the selection - a colour button or a thumbnail - the price and stock on
   // screen are re-checked against the shop for the colour now chosen.
@@ -80,7 +81,9 @@ export function VariantSelector({ product }: { product: Product }) {
       <p className="price">
         {formatPrice(discountPrice ?? price)}
         {discountPrice && <s>{formatPrice(price)}</s>}
+        {off && <span className="off">{off}% OFF</span>}
       </p>
+      {off && <p className="saving">You save {formatPrice(price - (discountPrice ?? price))}</p>}
 
       <p className="stock-status">
         {!inStock ? 'Sold out' : stock <= 5 ? `Low stock — only ${stock} left` : 'In stock'}
