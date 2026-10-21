@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input } from '../components/ui'
-import { siteApi, type SitePayload, type SiteProduct, type SiteSetting } from '../lib/api'
+import { siteApi, type SitePayload, type SiteProduct, type SiteSetting, type WebsiteShelf } from '../lib/api'
 import { useToast } from '../contexts/ToastContext'
 import { Globe } from 'lucide-react'
 
@@ -21,11 +21,17 @@ export function WebsiteAdmin() {
     // Only the keys the shop has typed into are sent, so a save cannot overwrite wording
     // someone else changed in the meantime.
     const [wording, setWording] = useState<Record<string, string>>({})
+    // Shelves are kept beside the site payload rather than inside it: this list also carries
+    // the hidden ones, which the website itself never sends.
+    const [shelves, setShelves] = useState<WebsiteShelf[]>([])
+    const [newShelf, setNewShelf] = useState('')
 
     const load = async () => {
         setIsLoading(true)
         try {
-            setSite(await siteApi.get())
+            const [payload, list] = await Promise.all([siteApi.get(), siteApi.shelves()])
+            setSite(payload)
+            setShelves(list)
         } catch {
             addToast('error', 'Could not load the website settings')
         } finally {
@@ -101,6 +107,34 @@ export function WebsiteAdmin() {
         }
     }
 
+    const addShelf = () => run(async () => {
+        const title = newShelf.trim()
+        if (!title) return
+        await siteApi.addShelf(title)
+        setNewShelf('')
+        await load()
+        addToast('success', `${title} added`)
+    }, 'Could not add the shelf')
+
+    const renameShelf = (slug: string, title: string) => run(async () => {
+        await siteApi.renameShelf(slug, title)
+        setShelves((list) => list.map((shelf) => (shelf.slug === slug ? { ...shelf, title } : shelf)))
+        addToast('success', 'Renamed')
+    }, 'Could not rename the shelf')
+
+    const showShelf = (slug: string, shown: boolean) => run(async () => {
+        await siteApi.showShelf(slug, shown)
+        await load()
+    }, 'Could not change the shelf')
+
+    // The server refuses a shelf that still holds sarees or that a link points at, and says
+    // why; that message is what the shop sees.
+    const deleteShelf = (shelf: WebsiteShelf) => run(async () => {
+        await siteApi.deleteShelf(shelf.slug)
+        await load()
+        addToast('success', `${shelf.title} deleted`)
+    }, 'Could not delete the shelf')
+
     const saveWording = () => run(async () => {
         if (!Object.keys(wording).length) {
             addToast('error', 'Nothing has been changed')
@@ -156,6 +190,65 @@ export function WebsiteAdmin() {
 
                 {site && (
                     <div className="space-y-6">
+                        {/* ---------------- the shelves themselves ---------------- */}
+                        <section className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 sm:p-5">
+                            <h2 className="font-semibold text-[var(--color-text)]">Categories</h2>
+                            <p className="text-sm text-[var(--color-text-muted)] mb-4">
+                                The shelves customers browse. The web address is made from the name once and never
+                                changes again, so renaming cannot break a link you have already sent.
+                            </p>
+
+                            <div className="space-y-1">
+                                {shelves.map((shelf) => (
+                                    <div key={shelf.slug} className="flex items-center gap-2 py-1.5 border-b border-[var(--color-border)] last:border-0">
+                                        <input
+                                            defaultValue={shelf.title}
+                                            disabled={busy}
+                                            onBlur={(event) => {
+                                                const title = event.target.value.trim()
+                                                if (title && title !== shelf.title) renameShelf(shelf.slug, title)
+                                                else event.target.value = shelf.title
+                                            }}
+                                            className="flex-1 min-w-0 px-2 py-1.5 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]"
+                                        />
+                                        <span className={`text-xs tabular-nums shrink-0 ${shelf.products ? "text-[var(--color-success-text)]" : "text-[var(--color-text-muted)]"}`}>
+                                            {shelf.products} sarees
+                                        </span>
+                                        <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)] shrink-0 cursor-pointer">
+                                            <input
+                                                type="checkbox"
+                                                checked={shelf.status === 'published'}
+                                                disabled={busy}
+                                                onChange={(event) => showShelf(shelf.slug, event.target.checked)}
+                                            />
+                                            shown
+                                        </label>
+                                        <button
+                                            type="button"
+                                            title="Delete this shelf"
+                                            disabled={busy}
+                                            onClick={() => deleteShelf(shelf)}
+                                            className="w-7 h-7 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-danger)] shrink-0"
+                                        >
+                                            ×
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="flex flex-wrap gap-2 mt-4">
+                                <input
+                                    value={newShelf}
+                                    disabled={busy}
+                                    placeholder="New category, e.g. Mangalagiri Pattu"
+                                    onChange={(event) => setNewShelf(event.target.value)}
+                                    onKeyDown={(event) => event.key === 'Enter' && addShelf()}
+                                    className="flex-1 min-w-[12rem] px-3 py-2 text-sm bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)]"
+                                />
+                                <Button type="button" disabled={busy || !newShelf.trim()} onClick={addShelf}>Add</Button>
+                            </div>
+                        </section>
+
                         {/* ---------------- shelves ---------------- */}
                         <section className="bg-[var(--color-surface-elevated)] border border-[var(--color-border)] rounded-xl p-4 sm:p-5">
                             <h2 className="font-semibold text-[var(--color-text)]">Shelves</h2>

@@ -1973,6 +1973,118 @@ const listingFor = async (client, productId) => (await client.query(
     [productId],
 )).rows[0] || null;
 
+// The shelves a saree can be put on, by the name the shop gave them on the website.
+// The screens used to keep their own typed copy of this list, so renaming a shelf on the
+// website left the POS showing the old word until someone remembered to edit the code.
+app.get('/api/website/categories', authenticateToken, async (req, res) => {
+    try {
+        res.json(await many(
+            `select c.slug, c.title, c.status,
+                    count(pc.product_id) filter (where p.status = 'published')::int as products
+               from store.categories c
+               left join store.product_categories pc on pc.category_id = c.id
+               left join store.products p on p.id = pc.product_id
+              where c.kind = 'collection'
+              group by c.slug, c.title, c.status, c.sort_order
+              order by c.sort_order, c.title`,
+        ));
+    } catch (err) {
+        console.error('Website categories error:', err);
+        res.status(500).json({ error: 'Failed to load the website categories' });
+    }
+});
+
+// Rename a shelf. The slug is left alone on purpose: it is in every link already sent to a
+// customer, so renaming a shelf must never be able to break one.
+// The web address a shelf gets, made from its name once and then frozen.
+const shelfSlug = (title) => title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+
+// Add a shelf. The shop types a name; the web address is built from it here so nobody has to
+// think about one, and two shelves with the same name are refused rather than silently merged.
+app.post('/api/website/categories', authenticateToken, requireStaff, async (req, res) => {
+    const title = typeof req.body?.title === 'string' ? req.body.title.trim() : '';
+    if (!title) return res.status(400).json({ error: 'Give the shelf a name' });
+    if (title.length > 60) return res.status(400).json({ error: 'That name is too long' });
+    const slug = shelfSlug(title);
+    if (!slug) return res.status(400).json({ error: 'That name has no letters or numbers in it' });
+    try {
+        const taken = await one('select slug from store.categories where slug = $1', [slug]);
+        if (taken) return res.status(409).json({ error: 'A shelf with that name already exists' });
+        const row = await one(
+            `insert into store.categories (slug, title, breadcrumb_label, description, sort_order)
+             values ($1, $2, $2, '',
+                     (select coalesce(max(sort_order), 0) + 1 from store.categories))
+             returning slug, title, status`,
+            [slug, title],
+        );
+        res.status(201).json(row);
+    } catch (err) {
+        console.error('Website category add error:', err);
+        res.status(500).json({ error: 'Failed to add the shelf' });
+    }
+});
+
+// Rename a shelf, or take it off the website and put it back. The slug is left alone on
+// purpose: it is in every link already sent to a customer, so renaming must never break one.
+app.patch('/api/website/categories/:slug', authenticateToken, requireStaff, async (req, res) => {
+    const { title, status } = req.body ?? {};
+    const name = typeof title === 'string' ? title.trim() : undefined;
+    if (name !== undefined && !name) return res.status(400).json({ error: 'Give the shelf a name' });
+    if (name !== undefined && name.length > 60) return res.status(400).json({ error: 'That name is too long' });
+    if (status !== undefined && status !== 'published' && status !== 'draft') {
+        return res.status(400).json({ error: 'A shelf is either shown or hidden' });
+    }
+    if (name === undefined && status === undefined) return res.status(400).json({ error: 'Nothing to change' });
+    try {
+        const row = await one(
+            `update store.categories
+                set title = coalesce($2, title),
+                    breadcrumb_label = coalesce($2, breadcrumb_label),
+                    status = coalesce($3::store.content_status, status),
+                    updated_at = now()
+              where slug = $1 returning slug, title, status`,
+            [req.params.slug, name ?? null, status ?? null],
+        );
+        if (!row) return res.status(404).json({ error: 'No such shelf' });
+        res.json(row);
+    } catch (err) {
+        console.error('Website category rename error:', err);
+        res.status(500).json({ error: 'Failed to change the shelf' });
+    }
+});
+
+// Delete a shelf, but only when nothing depends on it. A shelf holding sarees, or pointed at
+// by a menu link or a home page section, is refused with the reason: hiding it is the right
+// move there, and deleting it would leave a link going nowhere.
+app.delete('/api/website/categories/:slug', authenticateToken, requireStaff, async (req, res) => {
+    const slug = req.params.slug;
+    try {
+        const shelf = await one('select id, title from store.categories where slug = $1', [slug]);
+        if (!shelf) return res.status(404).json({ error: 'No such shelf' });
+
+        const sarees = await one(
+            'select count(*)::int as n from store.product_categories where category_id = $1', [shelf.id]);
+        if (sarees.n > 0) {
+            return res.status(409).json({ error: `${shelf.title} still holds ${sarees.n} saree(s). Move them first, or hide the shelf.` });
+        }
+        const linked = await one(
+            `select count(*)::int as n from store.nav_items
+              where is_active and href = '/collections/' || $1`, [slug]);
+        if (linked.n > 0) return res.status(409).json({ error: 'A menu link points at this shelf. Switch that link off first.' });
+
+        const section = await one(
+            `select count(*)::int as n from store.cms_blocks
+              where is_active and payload->>'collectionSlug' = $1`, [slug]);
+        if (section.n > 0) return res.status(409).json({ error: 'A home page section asks for this shelf. Switch that section off first.' });
+
+        await one('delete from store.categories where slug = $1 returning slug', [slug]);
+        res.json({ deleted: slug });
+    } catch (err) {
+        console.error('Website category delete error:', err);
+        res.status(500).json({ error: 'Failed to delete the shelf' });
+    }
+});
+
 app.get('/api/website/site', authenticateToken, requireStaff, async (req, res) => {
     try {
         // Shelves carry a count so the shop can see at a glance which ones a shopper would

@@ -8,7 +8,7 @@ const API_BASE = import.meta.env.VITE_API_URL || '/api';
 // The token the API handed back at sign-in. Reading it is synchronous now - the old
 // version asked Supabase for a session, raced it against a 3s timeout and then dug the
 // token out of localStorage by hand when that timed out, which it often did.
-async function request<T>(
+export async function request<T>(
     endpoint: string,
     options: RequestInit = {}
 ): Promise<T> {
@@ -649,7 +649,32 @@ export const siteApi = {
             method: 'PUT',
             body: JSON.stringify(changes),
         }),
+
+    // Shelves: the website's categories, which the shop keeps itself.
+    shelves: async () => request<WebsiteShelf[]>('/website/categories'),
+
+    addShelf: async (title: string) =>
+        request<WebsiteShelf>('/website/categories', { method: 'POST', body: JSON.stringify({ title }) }),
+
+    renameShelf: async (slug: string, title: string) =>
+        request<WebsiteShelf>(`/website/categories/${slug}`, { method: 'PATCH', body: JSON.stringify({ title }) }),
+
+    showShelf: async (slug: string, shown: boolean) =>
+        request<WebsiteShelf>(`/website/categories/${slug}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ status: shown ? 'published' : 'draft' }),
+        }),
+
+    deleteShelf: async (slug: string) =>
+        request<{ deleted: string }>(`/website/categories/${slug}`, { method: 'DELETE' }),
 };
+
+export interface WebsiteShelf {
+    slug: string;
+    title: string;
+    status: 'published' | 'draft';
+    products: number;
+}
 
 export const websiteApi = {
     getProducts: async (status: 'todo' | 'live') =>
