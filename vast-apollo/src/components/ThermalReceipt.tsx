@@ -3,6 +3,8 @@ import type { Product } from '../lib/api'
 interface CartItem {
     product: Product
     quantity: number
+    /** What the customer was actually charged for one piece: wholesale, retail or a price typed at the till. */
+    unitPrice: number
 }
 
 /**
@@ -27,9 +29,11 @@ export function printThermalReceipt(
     const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: '2-digit', year: 'numeric' })
     const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })
 
-    const subtotal = items.reduce((sum, item) => sum + item.product.selling_price_a * item.quantity, 0)
-    const cgst = Math.round(subtotal * 0.025)
-    const sgst = Math.round(subtotal * 0.025)
+    // The ticket price already contains the 5% GST, so the receipt shows the tax taken out of
+    // the total rather than added to it, and the three lines add up to the total exactly.
+    const taxable = Math.round(total / 1.05)
+    const cgst = Math.round((total - taxable) / 2)
+    const sgst = total - taxable - cgst
 
     const itemsHtml = items.map((item, i) => `
         <div class="item">
@@ -40,7 +44,7 @@ export function printThermalReceipt(
             </div>
             <div class="item-detail">
                 <span class="item-sku">${item.product.sku}</span>
-                <span class="item-amount">&#8377;${(item.product.selling_price_a * item.quantity).toLocaleString('en-IN')}</span>
+                <span class="item-amount">&#8377;${(item.unitPrice * item.quantity).toLocaleString('en-IN')}</span>
             </div>
         </div>
     `).join('')
@@ -257,8 +261,8 @@ export function printThermalReceipt(
                 <div class="div-solid"></div>
 
                 <div class="total-row">
-                    <span>Subtotal</span>
-                    <span>&#8377;${subtotal.toLocaleString('en-IN')}</span>
+                    <span>Taxable value</span>
+                    <span>&#8377;${taxable.toLocaleString('en-IN')}</span>
                 </div>
                 <div class="total-row">
                     <span>CGST (2.5%)</span>

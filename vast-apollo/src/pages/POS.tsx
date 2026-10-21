@@ -4,6 +4,8 @@ import { Button, Input, Modal } from '../components/ui'
 import { productsApi, billsApi, type Product } from '../lib/api'
 import { Html5Qrcode, Html5QrcodeSupportedFormats } from 'html5-qrcode'
 import { printThermalReceipt } from '../components/ThermalReceipt'
+import { useBarcodeScanner, beep } from '../hooks/useBarcodeScanner'
+import { useToast } from '../contexts/ToastContext'
 
 interface CartItem {
     // A colour scan returns the saree with the colour's own barcode, stock and name
@@ -12,6 +14,7 @@ interface CartItem {
 }
 
 export function POS() {
+    const { addToast } = useToast()
     const [billingMode, setBillingMode] = useState<'retail' | 'wholesale'>('retail')
     const [customPrices, setCustomPrices] = useState<Record<string, number>>({})
     const [cart, setCart] = useState<CartItem[]>([])
@@ -23,7 +26,7 @@ export function POS() {
     const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'upi'>('cash')
     const [isProcessing, setIsProcessing] = useState(false)
     const [lastBill, setLastBill] = useState<{ billNumber: string; total: number } | null>(null)
-    const [lastBillData, setLastBillData] = useState<{ items: CartItem[]; customer: string; phone: string; payment: string } | null>(null)
+    const [lastBillData, setLastBillData] = useState<{ items: (CartItem & { unitPrice: number })[]; customer: string; phone: string; payment: string } | null>(null)
     const [error, setError] = useState('')
     const scannerRef = useRef<Html5Qrcode | null>(null)
 
@@ -86,13 +89,14 @@ export function POS() {
         setIsScanning(false)
     }
 
-    const addToCart = async (sku: string) => {
+    /** Returns an empty string when the saree went in, otherwise why it did not. */
+    const addToCart = async (sku: string): Promise<string> => {
         setError('')
 
         // Check if already in cart
         if (cart.some(item => item.product.sku === sku)) {
             setError('This item is already in the cart')
-            return
+            return 'Already in the cart'
         }
 
         try {
@@ -100,17 +104,27 @@ export function POS() {
 
             if (!data || data.status !== 'available') {
                 setError('Product not found or already sold')
-                return
+                return 'Not found, or already sold'
             }
 
             setCart([...cart, { product: data, quantity: 1 }])
             setManualSku('')
+            return ''
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Unknown error'
             setError(`Error adding product: ${message}`)
             console.error('addToCart error:', err)
+            return message
         }
     }
+
+    // The wired scanner types the code and presses Enter, so the till takes a scan at any
+    // moment except while the checkout dialog is open, where the keys belong to the form.
+    useBarcodeScanner(async (code) => {
+        const problem = await addToCart(code.trim().toUpperCase())
+        beep(!problem)
+        addToast(problem ? 'error' : 'success', problem ? `${code} - ${problem}` : `Added ${code}`)
+    }, !isCheckoutOpen && !isScanning)
 
     const handleModeSwitch = (mode: 'retail' | 'wholesale') => {
         if (mode !== billingMode) {
@@ -153,14 +167,18 @@ export function POS() {
         return cart.reduce((sum, item) => sum + item.quantity, 0)
     }
 
-    // GST Calculations (5% total = CGST 2.5% + SGST 2.5%)
-    const CGST_RATE = 0.025 // 2.5%
-    const SGST_RATE = 0.025 // 2.5%
-    const getSubtotal = () => getTotal()
-    const getCGSTAmount = () => Math.round(getSubtotal() * CGST_RATE)
-    const getSGSTAmount = () => Math.round(getSubtotal() * SGST_RATE)
-    const getTotalGST = () => getCGSTAmount() + getSGSTAmount()
-    const getGrandTotal = () => getSubtotal() + getTotalGST()
+    // The ticket price a customer is quoted already contains the 5% GST, as it does in every
+    // shop on the street, so the tax is taken out of it rather than added on top. The GST
+    // report on the server has always read a bill this way (total - total / 1.05); the till
+    // was the one screen adding it again, which quoted the customer 5% more than the sticker.
+    const GST_RATE = 0.05
+    const getGrandTotal = () => getTotal()
+    const getSubtotal = () => Math.round(getGrandTotal() / (1 + GST_RATE))
+    const getTotalGST = () => getGrandTotal() - getSubtotal()
+    const getCGSTAmount = () => Math.round(getTotalGST() / 2)
+    // The halves are not rounded separately: the two lines plus the taxable value have to
+    // come to the exact total printed on the bill.
+    const getSGSTAmount = () => getTotalGST() - getCGSTAmount()
 
     const handleCheckout = async () => {
         if (cart.length === 0) return
@@ -176,7 +194,7 @@ export function POS() {
                 customer_name: customerName || null,
                 customer_phone: customerPhone || null,
                 salesman_id: null,
-                total_amount: getGrandTotal(), // Includes GST
+                total_amount: getGrandTotal(), // the price on the sticker; GST is inside it
                 total_cost: getTotalCost(),
                 payment_method: paymentMethod
             }
@@ -196,7 +214,10 @@ export function POS() {
             // can never be saved without its stock coming off.
 
             // Save data for printing before clearing
-            setLastBillData({ items: [...cart], customer: customerName, phone: customerPhone, payment: paymentMethod })
+            setLastBillData({
+                items: cart.map(item => ({ ...item, unitPrice: getItemPrice(item.product) })),
+                customer: customerName, phone: customerPhone, payment: paymentMethod,
+            })
 
             // Success!
             setLastBill({ billNumber: bill.bill_number, total: bill.total_amount })
@@ -400,7 +421,7 @@ export function POS() {
                             <div className="p-4 bg-[var(--color-border)]/30">
                                 <div className="space-y-2 mb-4">
                                     <div className="flex justify-between text-[var(--color-text-muted)]">
-                                        <span>Subtotal</span>
+                                        <span>Taxable value</span>
                                         <span>{formatCurrency(getSubtotal())}</span>
                                     </div>
                                     <div className="flex justify-between text-[var(--color-text-muted)]">
