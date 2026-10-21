@@ -7,7 +7,12 @@ const POLICY_SLUGS = ['shipping', 'returns', 'privacy', 'terms'];
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const nav = await getNav();
-  const categorySlugs = nav.categories.map((link) => link.href.replace('/collections/', ''));
+  // The menu also carries links that are not collections at all - Home, and whatever else the
+  // shop puts there - so only the collection links become sitemap entries. Asking the catalog
+  // for a category named "/" fails the whole build.
+  const categorySlugs = nav.categories
+    .filter((link) => link.href.startsWith('/collections/'))
+    .map((link) => link.href.replace('/collections/', ''));
 
   const productSlugSet = new Set<string>();
   for (const slug of categorySlugs) {

@@ -39,6 +39,7 @@ export function SearchBox() {
   return (
     <div className="relative w-full max-w-xs">
       <input
+        id="site-search"
         type="search"
         placeholder="Search weave, zari, color…"
         value={query}

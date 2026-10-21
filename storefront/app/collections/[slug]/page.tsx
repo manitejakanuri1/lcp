@@ -4,7 +4,7 @@ import { getCategory, searchCategoryProducts } from '@/lib/cloud-functions/catal
 import { getNav } from '@/lib/cloud-functions/nav';
 import { CloudFunctionError } from '@/lib/cloud-functions/client';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
-import { CollectionFilters } from '@/components/CollectionFilters';
+import { CollectionFilters, CollectionSideFilters } from '@/components/CollectionFilters';
 import { ProductGrid } from '@/components/ProductGrid';
 import { Pagination } from '@/components/Pagination';
 
@@ -92,17 +92,23 @@ export default async function CollectionPage({ params, searchParams }: PageProps
         }}
       />
 
-      <CollectionFilters fabricFacets={result.facets.fabric} colorFacets={result.facets.color} />
+      <CollectionFilters fabricFacets={result.facets.fabric} />
 
-      <ProductGrid products={result.products} emptyMessage="No sarees match these filters yet." />
+      <div className="collection-layout">
+        <CollectionSideFilters colorFacets={result.facets.color} />
 
-      <Pagination
-        page={result.pagination.page}
-        pageSize={result.pagination.pageSize}
-        total={result.pagination.total}
-        basePath={`/collections/${slug}`}
-        searchParams={query}
-      />
+        <div className="collection-results">
+          <ProductGrid products={result.products} emptyMessage="No sarees match these filters yet." />
+
+          <Pagination
+            page={result.pagination.page}
+            pageSize={result.pagination.pageSize}
+            total={result.pagination.total}
+            basePath={`/collections/${slug}`}
+            searchParams={query}
+          />
+        </div>
+      </div>
     </div>
   );
 }

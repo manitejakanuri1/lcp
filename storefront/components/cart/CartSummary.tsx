@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { formatPrice } from '@/lib/format';
 import type { CartTotals } from '@/lib/types';
 import { TruckIcon } from '@/components/icons';
@@ -15,8 +16,6 @@ interface CartSummaryProps {
  * The checkout CTA is deliberately disabled: `order-create-command` does not exist yet.
  */
 export function CartSummary({ totals, refreshing, blockingIssues }: CartSummaryProps) {
-  const progress = Math.min(100, Math.round((totals.subtotal / totals.freeShippingThreshold) * 100));
-  const qualifies = progress >= 100;
 
   return (
     <section
@@ -39,7 +38,7 @@ export function CartSummary({ totals, refreshing, blockingIssues }: CartSummaryP
         )}
         <div className="flex justify-between">
           <dt>Shipment</dt>
-          <dd className="text-right font-medium">{totals.shipping === 0 ? 'Free shipping' : 'Calculated at checkout'}</dd>
+          <dd className="text-right font-medium">Free</dd>
         </div>
         {totals.savings + totals.discount > 0 && (
           <div className="flex justify-between border-t border-line/70 pt-3 text-base text-[#1e7e34]">
@@ -53,44 +52,35 @@ export function CartSummary({ totals, refreshing, blockingIssues }: CartSummaryP
         </div>
       </dl>
 
-      <div className="mt-5">
-        <div className="mb-2 flex items-center justify-between gap-2 text-xs font-semibold text-maroon">
-          <span className="flex items-center gap-1.5">
-            <TruckIcon className="h-4 w-4 text-gold" />
-            {qualifies
-              ? 'Your order qualifies for free shipping!'
-              : `Add ${formatPrice(totals.freeShippingThreshold - totals.subtotal)} more for free shipping`}
-          </span>
-          <span className="font-bold text-gold">{qualifies ? '100% REACHED' : `${progress}%`}</span>
-        </div>
-        <div
-          role="progressbar"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={progress}
-          aria-label="Progress to free shipping"
-          className="h-3 w-full overflow-hidden rounded-full border border-gold/30 bg-[#eadecb] p-0.5"
-        >
-          <div className="h-full rounded-full bg-gradient-to-r from-gold via-gold-soft to-gold transition-all" style={{ width: `${progress}%` }} />
-        </div>
-      </div>
-
-      <p className="mt-4 rounded-xl border border-[#f5e2c5] bg-[#fff8ee] p-3 text-xs">
-        Your order is expected to leave our warehouse within <strong>1–7 days</strong>.
+      {/* The shop ships free everywhere, so there is no amount to climb towards. */}
+      <p className="mt-5 flex items-center gap-1.5 text-xs font-semibold text-maroon">
+        <TruckIcon className="h-4 w-4 text-gold" />
+        Free shipping anywhere in India
       </p>
 
-      <button
-        type="button"
-        disabled
-        aria-describedby="checkout-note"
-        className="mt-5 w-full rounded-full bg-muted/40 py-3.5 font-display text-sm font-bold uppercase tracking-wide text-white"
-      >
-        Proceed to checkout
-      </button>
+
+
+      {blockingIssues > 0 ? (
+        <button
+          type="button"
+          disabled
+          aria-describedby="checkout-note"
+          className="mt-5 w-full rounded-full bg-muted/40 py-3.5 font-display text-sm font-bold uppercase tracking-wide text-white"
+        >
+          Proceed to checkout
+        </button>
+      ) : (
+        <Link
+          href="/checkout"
+          className="mt-5 block w-full rounded-full bg-maroon py-3.5 text-center font-display text-sm font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90"
+        >
+          Proceed to checkout
+        </Link>
+      )}
       <p id="checkout-note" className="mt-2 text-center text-xs text-muted">
         {blockingIssues > 0
-          ? `Resolve ${blockingIssues} ${blockingIssues === 1 ? 'item' : 'items'} in your bag above. Checkout is coming soon.`
-          : 'Checkout is coming soon — your bag is saved on this device.'}
+          ? `Resolve ${blockingIssues} ${blockingIssues === 1 ? 'item' : 'items'} in your bag above.`
+          : 'Your bag is saved on this device.'}
       </p>
     </section>
   );

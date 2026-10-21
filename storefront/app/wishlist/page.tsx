@@ -12,7 +12,7 @@ import { BagIcon, CloseIcon, HeartIcon, ShieldIcon, TruckIcon } from '@/componen
 type Filter = 'all' | 'in-stock' | 'on-discount';
 type Sort = 'recent' | 'price-asc' | 'price-desc' | 'savings';
 
-const FREE_SHIPPING_ABOVE = 2999;
+// The shop ships free everywhere, so there is no threshold to reach.
 const LOW_STOCK_AT = 3;
 
 const effectivePrice = (item: WishlistItem) => item.discountPrice ?? item.price;
@@ -76,7 +76,7 @@ export default function WishlistPage() {
   const originalTotal = inStock.reduce((sum, item) => sum + item.price, 0);
   const payable = inStock.reduce((sum, item) => sum + effectivePrice(item), 0);
   const totalSavings = originalTotal - payable;
-  const shippingProgress = Math.min(100, Math.round((payable / FREE_SHIPPING_ABOVE) * 100));
+
 
   const loading = !ready || (wishlist.length > 0 && fetched === null && !error);
 
@@ -216,20 +216,10 @@ export default function WishlistPage() {
                     <p className="text-sm leading-relaxed text-muted">
                       Totals cover the in-stock pieces on your wishlist. Sold-out pieces are kept here and excluded.
                     </p>
-                    <div className="max-w-lg space-y-1.5 pt-1">
-                      <div className="flex items-center justify-between text-xs font-medium text-maroon">
-                        <span className="flex items-center gap-1.5">
-                          <TruckIcon className="h-[15px] w-[15px] text-gold" />
-                          {shippingProgress >= 100
-                            ? 'Your wishlist qualifies for complimentary shipping!'
-                            : `Add ${formatPrice(FREE_SHIPPING_ABOVE - payable)} more for complimentary shipping`}
-                        </span>
-                        <span className="font-bold text-gold">{shippingProgress >= 100 ? '100% Unlocked' : `${shippingProgress}%`}</span>
-                      </div>
-                      <div className="h-2 w-full overflow-hidden rounded-full bg-[#eadecb]">
-                        <div className="h-full rounded-full bg-gold" style={{ width: `${shippingProgress}%` }} />
-                      </div>
-                    </div>
+                    <p className="flex items-center gap-1.5 pt-1 text-xs font-medium text-maroon">
+                      <TruckIcon className="h-[15px] w-[15px] text-gold" />
+                      Free shipping anywhere in India
+                    </p>
                   </div>
 
                   <div className="space-y-4 rounded-xl border border-line bg-white p-5 shadow-sm xl:col-span-5">
@@ -277,7 +267,7 @@ export default function WishlistPage() {
         <div className="grid grid-cols-1 gap-4 pt-2 md:grid-cols-3">
           {[
             { icon: <ShieldIcon className="h-6 w-6" />, title: '100% Pure Silk Mark', text: 'Govt. certified purity hallmark on every single weave.' },
-            { icon: <TruckIcon className="h-6 w-6" />, title: 'Complimentary Insured Transit', text: `Free insured express delivery on orders above ${formatPrice(FREE_SHIPPING_ABOVE)}.` },
+            { icon: <TruckIcon className="h-6 w-6" />, title: 'Complimentary Insured Transit', text: 'Free delivery anywhere in India.' },
             { icon: <HeartIcon className="h-6 w-6" />, title: 'Direct Artisan Lineage', text: 'Fair trade patronship honoring master weaver families.' },
           ].map((badge) => (
             <div key={badge.title} className="flex items-center gap-4 rounded-xl border border-line bg-cream-card p-5">
