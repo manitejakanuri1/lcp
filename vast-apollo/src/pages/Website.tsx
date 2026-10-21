@@ -54,7 +54,7 @@ export function Website() {
         <Layout>
             <div className="max-w-7xl mx-auto p-4 sm:p-6 lg:p-8 pb-24 md:pb-8">
                 <div className="mb-6">
-                    <h1 className="text-2xl font-bold text-[var(--color-text)]">Website</h1>
+                    <h1 className="text-2xl font-bold text-[var(--color-text)]">Colours</h1>
                     <p className="text-[var(--color-text-muted)]">
                         Add category and colour photos, then switch a saree on to show it on the website
                     </p>
