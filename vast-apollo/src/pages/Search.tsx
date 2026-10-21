@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useBarcodeScanner, beep } from '../hooks/useBarcodeScanner'
 import { Layout } from '../components/layout/Layout'
 import { Input } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
@@ -52,6 +53,14 @@ export function Search() {
             maximumFractionDigits: 0
         }).format(value)
     }
+
+
+    // A scan drops the code into the search box, which is what the screen is for: the
+    // cashier wants to see the saree, not bill it.
+    useBarcodeScanner((code) => {
+        setSearchTerm(code.trim().toUpperCase())
+        beep(true)
+    })
 
     const clearFilters = () => {
         setSearchTerm('')

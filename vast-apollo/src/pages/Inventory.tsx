@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useBarcodeScanner, beep } from '../hooks/useBarcodeScanner'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, type Product } from '../lib/api'
@@ -6,7 +7,7 @@ import { AddPurchaseModal } from '../components/inventory/AddPurchaseModal'
 import { ProductPhotoUpload } from '../components/inventory/ProductPhotoUpload'
 import { ProductThumbnail } from '../components/inventory/ProductThumbnail'
 import { PhotoPicker } from '../components/inventory/PhotoPicker'
-import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
+import { useCategories, categoryLabel } from '../lib/categories'
 import { BarcodeDisplay } from '../components/BarcodeDisplay'
 import { ProductCodeModal } from '../components/ProductCodeModal'
 
@@ -25,7 +26,15 @@ export function Inventory() {
     const [editDiscountPercent, setEditDiscountPercent] = useState('')
     const [isDeleting, setIsDeleting] = useState(false)
     const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false)
+    const categories = useCategories()
     const [barcodeModalProduct, setBarcodeModalProduct] = useState<Product | null>(null)
+
+    // A scan filters the list down to that saree. Switched off while a dialog is open,
+    // where the keys belong to the form being filled in.
+    useBarcodeScanner((code) => {
+        setFilter(code.trim().toUpperCase())
+        beep(true)
+    }, !isModalOpen && !barcodeModalProduct && !selectedProduct)
     // Held until the product exists, then uploaded against its new id.
     const [newProductPhoto, setNewProductPhoto] = useState<File | null>(null)
 
@@ -696,7 +705,7 @@ export function Inventory() {
                                         className="w-full px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)] focus:outline-none focus:border-[var(--color-primary)] focus:ring-2 focus:ring-[var(--color-primary)]/20"
                                     >
                                         <option value="">Auto (guessed from name)</option>
-                                        {SAREE_CATEGORIES.map((c) => (
+                                        {categories.map((c) => (
                                             <option key={c.id} value={c.id}>{c.label}</option>
                                         ))}
                                     </select>
