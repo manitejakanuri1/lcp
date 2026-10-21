@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Layout } from '../components/layout/Layout'
 import { Button, Input, Modal } from '../components/ui'
 import { productsApi, websiteApi, type WebsiteProduct } from '../lib/api'
-import { SAREE_CATEGORIES, categoryLabel } from '../lib/categories'
+import { useCategories, categoryLabel } from '../lib/categories'
 import { useToast } from '../contexts/ToastContext'
 import { Globe, ImagePlus, Pencil, Printer, Trash2 } from 'lucide-react'
 import { printThermalLabels } from '../components/inventory/ThermalLabel'
@@ -142,6 +142,8 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     onMovedTab: () => void
 }) {
     const { addToast } = useToast()
+    // The shelf names come from the website, so a rename there shows here without a release.
+    const categories = useCategories()
     const [colorName, setColorName] = useState('')
     const [colorPieces, setColorPieces] = useState('')
     const [colorFile, setColorFile] = useState<File | null>(null)
@@ -423,7 +425,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
                             className="w-full sm:w-80 px-4 py-3 text-base bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-[var(--color-text)]"
                         >
                             <option value="">Select a category…</option>
-                            {SAREE_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+                            {categories.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
                         </select>
                     </div>
 
