@@ -38,6 +38,8 @@ interface CartWishlistContextValue {
   cartQuantityOf: (productId: string, variantId: string | undefined) => number;
   setCartQuantity: (productId: string, variantId: string | undefined, quantity: number) => void;
   removeFromCart: (productId: string, variantId: string | undefined) => void;
+  /** Emptied once an order is paid for; the bag has become an order. */
+  clearCart: () => void;
   /** Records the price the shopper has now accepted for a line. */
   acceptCartPrice: (productId: string, variantId: string | undefined, unitPrice: number) => void;
   addToWishlist: (productId: string) => void;
@@ -142,6 +144,8 @@ export function CartWishlistProvider({ children }: { children: ReactNode }) {
     );
   }, []);
 
+  const clearCart = useCallback(() => update<CartLine>(CART_KEY, () => []), []);
+
   const removeFromCart = useCallback((productId: string, variantId: string | undefined) => {
     update<CartLine>(CART_KEY, (current) => current.filter((line) => !sameLine(line, productId, variantId)));
   }, []);
@@ -166,6 +170,7 @@ export function CartWishlistProvider({ children }: { children: ReactNode }) {
       cartQuantityOf: (productId, variantId) => cart.find((line) => sameLine(line, productId, variantId))?.quantity ?? 0,
       setCartQuantity,
       removeFromCart,
+      clearCart,
       acceptCartPrice,
       addToWishlist,
     }),
@@ -178,6 +183,7 @@ export function CartWishlistProvider({ children }: { children: ReactNode }) {
       addToCart,
       setCartQuantity,
       removeFromCart,
+      clearCart,
       acceptCartPrice,
       addToWishlist,
     ],

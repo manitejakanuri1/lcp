@@ -9,6 +9,7 @@ import { formatPrice } from '@/lib/format';
 import type { CartView } from '@/lib/types';
 import { useCartWishlist } from '@/components/shared/CartWishlistProvider';
 import { TruckIcon } from '@/components/icons';
+import { RazorpayButton } from '@/components/cart/RazorpayButton';
 
 /**
  * Where the order is addressed.
@@ -190,16 +191,19 @@ export default function CheckoutPage() {
             </p>
           )}
 
-          <button
-            type="button"
-            onClick={() => setTouched(true)}
-            className="mt-6 w-full rounded-full bg-maroon py-3.5 font-display text-sm font-bold uppercase tracking-wide text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            disabled={problems.length > 0 && touched}
-          >
-            Continue to payment
-          </button>
+          {problems.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setTouched(true)}
+              className="mt-6 w-full rounded-full bg-muted/40 py-3.5 font-display text-sm font-bold uppercase tracking-wide text-white"
+            >
+              Pay now
+            </button>
+          ) : (
+            <RazorpayButton address={form} disabled={false} />
+          )}
           <p className="mt-2 text-center text-xs text-muted">
-            Online payment is being connected. Your address is saved on this device meanwhile.
+            Paid securely through Razorpay. Free shipping anywhere in India.
           </p>
         </section>
 
