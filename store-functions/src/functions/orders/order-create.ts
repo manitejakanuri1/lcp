@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { attachRazorpayOrder, createPendingOrder, releaseOrder, type Address } from '../../data/checkout';
+import { attachRazorpayOrder, createPendingOrder, razorpayOrderFor, releaseOrder, type Address } from '../../data/checkout';
 import { parseLines } from '../../data/cart';
 import { requireCustomer } from '../../shared/customer-auth';
 import { StoreError, sendJson } from '../../shared/envelope';
@@ -54,6 +54,22 @@ export const orderCreate = handle(
     // The order and its hold are written before Razorpay is asked for anything, so a refusal
     // there - wrong keys, their service down - must give the pieces straight back. Without
     // this the saree sits held for fifteen minutes for a payment that never opened.
+    // A retry of the same attempt reuses the payment already opened for it. Opening a second
+    // one would leave the first unpaid against the same order.
+    const openAlready = await razorpayOrderFor(order.orderId);
+    if (openAlready) {
+      sendJson(res, {
+        orderId: order.orderId,
+        orderNumber: order.orderNumber,
+        amount: toPaise(order.total),
+        currency: 'INR',
+        razorpayOrderId: openAlready,
+        keyId: publicKeyId(),
+        customer: { name: `${address.firstName} ${address.lastName}`.trim(), phone: address.phone, email: customer.profile.email },
+      }, 200);
+      return;
+    }
+
     let razorpay;
     try {
       razorpay = await createRazorpayOrder(toPaise(order.total), order.orderNumber, {

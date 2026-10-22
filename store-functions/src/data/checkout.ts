@@ -32,7 +32,8 @@ export interface PendingOrder {
   orderId: string;
   orderNumber: string;
   total: number;
-  view: CartView;
+  /** Null when this is a retry of an order already written: nothing was re-priced. */
+  view: CartView | null;
 }
 
 /**
@@ -47,24 +48,27 @@ export async function createPendingOrder(
   address: Address,
   idempotencyKey: string,
 ): Promise<PendingOrder> {
+  // The retry is answered before anything is priced. A second tap on Pay would otherwise be
+  // told the saree is sold out - by the hold the shopper's own first tap just placed.
+  const { rows: already } = await query<{ id: string; order_number: string; total: string }>(
+    `SELECT id, order_number, total FROM store.orders WHERE idempotency_key = $1`,
+    [idempotencyKey],
+  );
+  if (already[0]) {
+    return {
+      orderId: already[0].id,
+      orderNumber: already[0].order_number,
+      total: Number(already[0].total),
+      view: null,
+    };
+  }
+
   const view = await buildCartView(lines);
   const payable = view.items.filter((item) => item.inStock);
   if (payable.length === 0) throw new StoreError('OUT_OF_STOCK', 'Nothing in the bag is available to buy.');
   if (view.totals.total <= 0) throw new StoreError('VALIDATION_ERROR', 'This bag has nothing to pay for.');
 
   return tx(async (q) => {
-    const existing = await q<{ id: string; order_number: string; total: string }>(
-      `SELECT id, order_number, total FROM store.orders WHERE idempotency_key = $1`,
-      [idempotencyKey],
-    );
-    if (existing.rows[0]) {
-      return {
-        orderId: existing.rows[0].id,
-        orderNumber: existing.rows[0].order_number,
-        total: Number(existing.rows[0].total),
-        view,
-      };
-    }
 
     const shipping = {
       name: `${address.firstName} ${address.lastName}`.trim(),
@@ -240,11 +244,14 @@ export async function markOrderPaid(
        ON CONFLICT (provider, provider_ref) DO NOTHING`,
       [orderId, payment.razorpayPaymentId, payment.method ?? null, order.total, JSON.stringify(payment.raw ?? {})],
     );
+    // No catch here on purpose. A failed statement poisons the whole transaction in Postgres,
+    // so swallowing one hides the cause and makes every later statement fail with
+    // "current transaction is aborted" - which is exactly how a paid order went unrecorded.
     await q(
-      `INSERT INTO store.order_status_history (order_id, status, note)
-       VALUES ($1, 'placed', $2)`,
+      `INSERT INTO store.order_status_history (order_id, from_status, to_status, note)
+       VALUES ($1, 'pending_payment', 'placed', $2)`,
       [orderId, `Paid online · ${payment.razorpayPaymentId}`],
-    ).catch(() => undefined); // history is a nicety; a missing column must not undo a paid order
+    );
 
     // The shop's own books. A website sale shows in Sales and in the GST report exactly like a
     // counter sale, which is what makes the day's figures add up.
@@ -286,10 +293,12 @@ export async function releaseOrder(orderId: string, reason: string): Promise<voi
         WHERE id = $1 AND payment_status = 'pending'`,
       [orderId],
     );
+    // A failed attempt may already have a row from when the payment was opened; the unique
+    // key on (provider, provider_ref) is what that row holds, and this one carries no ref.
     await q(
       `INSERT INTO store.payments (order_id, provider, method, amount, status, failure_reason)
        SELECT id, 'razorpay', NULL, total, 'failed', $2 FROM store.orders WHERE id = $1`,
       [orderId, reason.slice(0, 300)],
-    ).catch(() => undefined);
+    );
   });
 }

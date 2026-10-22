@@ -65,6 +65,19 @@ const token = signedUp.body?.accessToken;
 if (!token) process.exit(1);
 
 // ---- the amount comes from the shop, not the browser ------------------------------------------
+const liar = await post(ORDER_CREATE, { lines: [{ ...lines[0], unitPrice: 1 }], address, idempotencyKey: `liar-${Date.now()}` }, token);
+check('a browser that sends its own price is ignored', liar.body?.amount === Math.round(realPrice * 100),
+    `${liar.body?.amount} vs ${Math.round(realPrice * 100)}`);
+if (liar.body?.orderId) await post(PAYMENT_VERIFY, { orderId: liar.body.orderId, failed: true, reason: 'test tidy-up' }, token);
+
+const retryKey = `retry-${Date.now()}`;
+const again = await post(ORDER_CREATE, { lines, address, idempotencyKey: retryKey }, token);
+const repeated = await post(ORDER_CREATE, { lines, address, idempotencyKey: retryKey }, token);
+check('the same attempt twice gives one order, not two',
+    Boolean(again.body?.orderId) && again.body.orderId === repeated.body?.orderId,
+    `${again.body?.orderId} vs ${repeated.body?.orderId}`);
+if (again.body?.orderId) await post(PAYMENT_VERIFY, { orderId: again.body.orderId, failed: true, reason: 'test tidy-up' }, token);
+
 const started = await post(ORDER_CREATE, { lines, address, idempotencyKey: `test-${Date.now()}` }, token);
 check('an order can be started', started.status === 201, `HTTP ${started.status} ${JSON.stringify(started.body)?.slice(0, 120)}`);
 check('it has an order number', Boolean(started.body?.orderNumber), started.body?.orderNumber);
@@ -75,14 +88,8 @@ check('the secret key is not sent to the browser',
     !JSON.stringify(started.body).includes('rzp_') || String(started.body?.keyId || '').startsWith('rzp_test_'),
     `keyId ${started.body?.keyId?.slice(0, 12)}…`);
 
-const liar = await post(ORDER_CREATE, { lines: [{ ...lines[0], unitPrice: 1 }], address, idempotencyKey: `liar-${Date.now()}` }, token);
-check('a browser that sends its own price is ignored', liar.body?.amount === Math.round(realPrice * 100),
-    `${liar.body?.amount} vs ${Math.round(realPrice * 100)}`);
-
-const again = await post(ORDER_CREATE, { lines, address, idempotencyKey: started.body.orderNumber }, token);
-const repeated = await post(ORDER_CREATE, { lines, address, idempotencyKey: started.body.orderNumber }, token);
-check('the same attempt twice gives one order, not two', again.body?.orderId === repeated.body?.orderId,
-    `${again.body?.orderId} vs ${repeated.body?.orderId}`);
+// Released as soon as it is checked: each of these orders holds the same pieces, and a saree
+// with one piece left cannot be held three times over - the shop would be overselling.
 
 // ---- forged confirmations ----------------------------------------------------------------------
 const forged = await post(PAYMENT_VERIFY, {
@@ -103,6 +110,8 @@ const missing = await post(PAYMENT_VERIFY, { orderId: started.body.orderId }, to
 check('a confirmation with nothing in it is refused', missing.status === 400, missing.body?.error?.message);
 
 // ---- a closed payment window frees the held pieces ------------------------------------------------
+// Every order this test opened holds pieces for fifteen minutes, so all of them are released,
+// not only the first: otherwise the shelf check below is measuring the test's own litter.
 const abandoned = await post(PAYMENT_VERIFY, { orderId: started.body.orderId, failed: true, reason: 'test' }, token);
 check('closing the payment window releases the hold', abandoned.status === 200 && abandoned.body?.paid === false,
     JSON.stringify(abandoned.body));
