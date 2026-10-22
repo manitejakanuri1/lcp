@@ -1,5 +1,7 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
+
 import { useEffect, useState, useTransition } from 'react';
 import Link from 'next/link';
 import { getProductPriceStock } from '@/lib/cloud-functions/catalog';
@@ -13,6 +15,7 @@ export function VariantSelector({ product }: { product: Product }) {
   const [quantity, setQuantity] = useState(1);
   const [live, setLive] = useState<ProductVariantSummary | null>(null);
   const [isPending, startTransition] = useTransition();
+  const router = useRouter();
   const { setCartQuantity, addToCart, cartQuantityOf, toggleWishlist, isWishlisted } = useCartWishlist();
   const [cartMessage, setCartMessage] = useState<{ text: string; ok: boolean } | null>(null);
   const { index: shownPhoto, show: showPhoto } = useShownPhoto();
@@ -52,7 +55,7 @@ export function VariantSelector({ product }: { product: Product }) {
   // The server re-prices and stock-caps the add; the stored line uses ITS price, not the one on screen.
   // The check covers the line's NEW TOTAL (already in the bag + this add), so repeated adds cannot
   // slip past the stock/max-quantity cap one click at a time.
-  function handleAddToCart() {
+  function handleAddToCart(thenCheckout = false) {
     setCartMessage(null);
     const already = cartQuantityOf(product.id, selectedVariantId);
     startAdding(async () => {
@@ -68,6 +71,9 @@ export function VariantSelector({ product }: { product: Product }) {
           text: clamped ? `Your bag now holds ${line.quantity} — that's the most we can offer.` : 'Added to your cart.',
           ok: true,
         });
+        // Buy now is the same add, followed by the checkout: the bag is still the record of
+        // what is being bought, so anything already in it comes along.
+        if (thenCheckout) router.push('/checkout');
       } catch (error) {
         setCartMessage({ text: error instanceof Error ? error.message : 'Could not add to cart.', ok: false });
       }
@@ -133,7 +139,10 @@ export function VariantSelector({ product }: { product: Product }) {
       </div>
 
       <div className="pdp-actions">
-        <button type="button" className="btn-primary" disabled={!inStock || adding} onClick={handleAddToCart}>
+        <button type="button" className="btn-buy" disabled={!inStock || adding} onClick={() => handleAddToCart(true)}>
+          {!inStock ? 'Sold out' : adding ? 'Opening…' : 'Buy now'}
+        </button>
+        <button type="button" className="btn-primary" disabled={!inStock || adding} onClick={() => handleAddToCart()}>
           {!inStock ? 'Sold out' : adding ? 'Adding…' : 'Add to cart'}
         </button>
         <button type="button" className="btn-secondary" onClick={() => toggleWishlist(product.id)}>

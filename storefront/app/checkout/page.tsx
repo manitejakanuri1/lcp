@@ -91,8 +91,10 @@ export default function CheckoutPage() {
   useEffect(() => {
     const token = getAccessToken();
     setSignedIn(Boolean(token));
-    if (!token) router.replace('/login?next=%2Fcheckout');
-  }, [router]);
+    // A full page move, not the client router: the router call was silently dropped here and
+    // left shoppers stranded on a "taking you to sign in" line that never went anywhere.
+    if (!token) window.location.assign('/login?next=%2Fcheckout');
+  }, []);
 
   // An empty bag has nothing to address.
   useEffect(() => {
@@ -121,9 +123,18 @@ export default function CheckoutPage() {
   const totals = view?.totals;
 
   if (signedIn !== true) {
+    // Shown while the move happens, and left standing if it does not: a dead end with no way
+    // out is worse than an extra tap.
     return (
-      <main className="mx-auto w-full max-w-6xl px-4 py-10 md:px-8">
-        <p className="text-sm text-muted">Taking you to sign in…</p>
+      <main className="mx-auto w-full max-w-md px-4 py-16 text-center md:px-8">
+        <h1 className="font-display text-2xl font-bold text-maroon">Sign in to check out</h1>
+        <p className="mt-2 text-sm text-muted">Your bag is saved — you will come straight back here.</p>
+        <Link
+          href="/login?next=%2Fcheckout"
+          className="mt-6 inline-block rounded-full bg-maroon px-6 py-3 font-display text-sm font-bold uppercase tracking-wide text-white"
+        >
+          Sign in
+        </Link>
       </main>
     );
   }
