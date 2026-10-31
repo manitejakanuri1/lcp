@@ -1,0 +1,3 @@
+node_modules/
+# Copied from api/ by deploy.sh so the function and the API share one definition of the layout.
+image-naming.js

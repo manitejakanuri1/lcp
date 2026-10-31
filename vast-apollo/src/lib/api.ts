@@ -2,8 +2,15 @@
 // All sensitive keys stay on the server
 
 import { clearToken, getToken } from './session'
+import { uploadImage } from './imageUpload/uploadImage'
+import type { Handshake, HandshakeRequest, ImageStatus, ImageUploadClient } from './imageUpload/types'
 
 const API_BASE = import.meta.env.VITE_API_URL || '/api';
+
+// Photos go browser -> storage directly (docs/image_processing_req) once the upload bucket and
+// the variant function exist. Off until then so the screens keep using the multipart routes;
+// set VITE_DIRECT_UPLOADS=true at build time to switch every photo upload over together.
+export const DIRECT_UPLOADS = import.meta.env.VITE_DIRECT_UPLOADS === 'true'
 
 // The token the API handed back at sign-in. Reading it is synchronous now - the old
 // version asked Supabase for a session, raced it against a 3s timeout and then dug the
@@ -44,6 +51,13 @@ export async function request<T>(
     }
 
     return response.json();
+}
+
+/** The shop's own API as the upload pieces' client; a test or another provider swaps this out. */
+export const apiImageClient: ImageUploadClient = {
+    requestUploadUrl: (req: HandshakeRequest) =>
+        request<Handshake>('/images/upload-url', { method: 'POST', body: JSON.stringify(req) }),
+    getImageStatus: (imageId: string) => request<ImageStatus>(`/images/${imageId}`),
 }
 
 // ================== AUTH API ==================
@@ -168,6 +182,13 @@ export const productsApi = {
 
     // Sends multipart/form-data, so it can't go through request() (which forces JSON)
     uploadPhoto: async (id: string, file: File) => {
+        if (DIRECT_UPLOADS) {
+            const image = await uploadImage({ client: apiImageClient, file, kind: 'product', ownerId: id })
+            return request<{ success: boolean; image_url: string; product: Product }>(`/products/${id}/photo`, {
+                method: 'PUT',
+                body: JSON.stringify({ image_id: image.imageId }),
+            })
+        }
         const formData = new FormData();
         formData.append('photo', file);
 
@@ -189,6 +210,13 @@ export const productsApi = {
 
         return response.json() as Promise<{ success: boolean; image_url: string; product: Product }>;
     },
+
+    // Record a photo that was uploaded directly (SecureMediaUploader) as the saree's picture.
+    attachPhoto: async (id: string, imageId: string) =>
+        request<{ success: boolean; image_url: string; product: Product }>(`/products/${id}/photo`, {
+            method: 'PUT',
+            body: JSON.stringify({ image_id: imageId }),
+        }),
 
     deletePhoto: async (id: string) => {
         return request<{ success: boolean; product: Product }>(`/products/${id}/photo`, {
@@ -690,7 +718,12 @@ export const websiteApi = {
         const formData = new FormData();
         formData.append('color_name', colorName);
         formData.append('pieces', String(pieces));
-        if (file) formData.append('photo', file);
+        if (file && DIRECT_UPLOADS) {
+            const image = await uploadImage({ client: apiImageClient, file, kind: 'colour', ownerId: productId });
+            formData.append('image_id', image.imageId);
+        } else if (file) {
+            formData.append('photo', file);
+        }
         const token = getToken();
         const response = await fetch(`${API_BASE}/website/products/${productId}/colors`, {
             method: 'POST',
@@ -705,9 +738,15 @@ export const websiteApi = {
         return response.json() as Promise<ProductColor>;
     },
 
-    setColorPhoto: async (colorId: string, file: File) => {
+    // productId is the saree the colour belongs to; the direct path needs it to ask for a link.
+    setColorPhoto: async (colorId: string, file: File, productId?: string) => {
         const formData = new FormData();
-        formData.append('photo', file);
+        if (DIRECT_UPLOADS && productId) {
+            const image = await uploadImage({ client: apiImageClient, file, kind: 'colour', ownerId: productId });
+            formData.append('image_id', image.imageId);
+        } else {
+            formData.append('photo', file);
+        }
         const token = getToken();
         const response = await fetch(`${API_BASE}/website/colors/${colorId}/photo`, {
             method: 'PUT',

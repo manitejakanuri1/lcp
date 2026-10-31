@@ -297,7 +297,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
         let colours = [...product.product_colors]
         for (const item of attach) {
             const saved = await websiteApi.setColorPhoto(item.attachTo as string,
-                await fileFrom(item.url, 'colour.jpg'))
+                await fileFrom(item.url, 'colour.jpg'), product.id)
             colours = colours.map((c) => c.id === saved.id ? { ...c, image_url: saved.image_url } : c)
         }
 
@@ -329,7 +329,7 @@ function ProductEditor({ product, onChange, onClose, onMovedTab }: {
     const attachPhoto = (file: File) => run(async () => {
         const id = lateFor.current
         if (!id) return
-        const saved = await websiteApi.setColorPhoto(id, file)
+        const saved = await websiteApi.setColorPhoto(id, file, product.id)
         onChange({
             ...product,
             product_colors: product.product_colors.map((c) => c.id === id ? { ...c, image_url: saved.image_url } : c),

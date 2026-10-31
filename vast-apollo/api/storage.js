@@ -15,15 +15,23 @@
 // is found by swapping /web/ for /original/ and .webp for .jpg - see originalUrlFor().
 import { Storage } from '@google-cloud/storage';
 import sharp from 'sharp';
+import {
+    LARGEST_WIDTH, UPLOAD_MAX_BYTES, UPLOAD_MIME, VARIANT_WIDTHS, isUuid, uploadPath, variantFolder, variantPath,
+} from './image-naming.js';
 
 const BUCKET = process.env.PHOTO_BUCKET || 'lakshmi-sarees-photos';
 // A vendor's bill carries their GST number and often their bank details, so bill photos live
 // in their own bucket with public access switched off at the bucket level, not merely unlinked.
 // They are shown through a link that expires; saree photos are meant to be public.
 const BILL_BUCKET = process.env.BILL_BUCKET || 'lakshmi-sarees-bills';
+// Photos the browser uploads directly arrive here first, in a bucket with public access off,
+// because nothing in it has been checked yet. The variant function reads from here and writes
+// the public sizes to BUCKET, then the raw file is deleted.
+const UPLOAD_BUCKET = process.env.UPLOAD_BUCKET || 'lakshmi-sarees-uploads';
 const storage = new Storage();
 const bucket = () => storage.bucket(BUCKET);
 const bills = () => storage.bucket(BILL_BUCKET);
+const uploads = () => storage.bucket(UPLOAD_BUCKET);
 
 export const publicUrl = (path) => `https://storage.googleapis.com/${BUCKET}/${path}`;
 
@@ -110,6 +118,76 @@ export async function readBill(path) {
     return { buffer, contentType: metadata.contentType || 'application/octet-stream' };
 }
 
+// ---- Direct-to-storage uploads (docs/image_processing_req) --------------------------------
+
+const SIGNED_URL_MINUTES = 10;
+
+/**
+ * A short-lived URL the browser PUTs one WebP to. Content type and size range are part of the
+ * signature, so a different type, or a file past the cap, is refused by storage itself.
+ */
+export async function signedUploadUrl(parts) {
+    const expires = Date.now() + SIGNED_URL_MINUTES * 60_000;
+    const headers = { 'x-goog-content-length-range': `1,${UPLOAD_MAX_BYTES}` };
+    const [url] = await uploads().file(uploadPath(parts)).getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires,
+        contentType: UPLOAD_MIME,
+        extensionHeaders: headers,
+    });
+    return { url, headers: { 'Content-Type': UPLOAD_MIME, ...headers }, expiresAt: new Date(expires).toISOString() };
+}
+
+export const variantPublicUrl = (parts, width = LARGEST_WIDTH) => publicUrl(variantPath(parts, width));
+
+/** True once the variant function has written every size. */
+export async function variantsReady(parts) {
+    const checks = await Promise.all(VARIANT_WIDTHS.map((w) => bucket().file(variantPath(parts, w)).exists().then(([e]) => e)));
+    return checks.every(Boolean);
+}
+
+/** Has the browser's PUT landed yet (so the function can be expected to run)? */
+export async function rawUploaded(parts) {
+    const [exists] = await uploads().file(uploadPath(parts)).exists();
+    return exists;
+}
+
+/** Remove every size of one photo, plus its upload if the function has not cleared it yet. */
+export async function deleteImage(parts) {
+    const [files] = await bucket().getFiles({ prefix: `${variantFolder(parts)}/` });
+    await Promise.all([
+        ...files.map((f) => f.delete().catch(() => {})),
+        uploads().file(uploadPath(parts)).delete().catch(() => {}),
+    ]);
+}
+
+/** Everything uploaded directly for one saree: its own photos and every colour's. */
+export async function deleteOwnerImages(ownerId) {
+    for (const kind of ['product', 'colour']) {
+        const [files] = await bucket().getFiles({ prefix: `img/${kind}/${ownerId}/` });
+        await Promise.all(files.map((f) => f.delete().catch(() => {})));
+    }
+}
+
+/** The photo parts behind a stored image_url in the new layout, or null for a legacy URL. */
+export function partsFromStoredUrl(storedUrl) {
+    const marker = `/${BUCKET}/img/`;
+    const at = storedUrl?.indexOf(marker) ?? -1;
+    if (at < 0) return null;
+    const m = new RegExp(`^([a-z]+)/([0-9a-f-]{36})/([0-9a-f-]{36})/${LARGEST_WIDTH}\.webp$`, 'i')
+        .exec(storedUrl.slice(at + marker.length));
+    if (!m || !isUuid(m[2]) || !isUuid(m[3])) return null;
+    return { kind: m[1], ownerId: m[2], imageId: m[3] };
+}
+
+/** Delete whatever is behind a stored photo URL, in either the old or the new layout. */
+export async function deleteStoredPhoto(storedUrl) {
+    const parts = partsFromStoredUrl(storedUrl);
+    if (parts) return deleteImage(parts).then(() => true);
+    return deletePhotoPair(storedUrl);
+}
+
 /**
  * Self-check: the two paths of a stored pair must point at each other, because the zoom view
  * finds the original by rewriting the web photo's URL.
@@ -120,5 +198,9 @@ export function demo() {
     if (original !== publicUrl('products/abc/original/123.jpg')) throw new Error(`bad original path: ${original}`);
     if (originalUrlFor('https://example.com/elsewhere.jpg') !== null) throw new Error('a stranger URL must not be rewritten');
     if (originalUrlFor(null) !== null) throw new Error('no URL must answer null');
+    const parts = { kind: 'colour', ownerId: '11111111-1111-4111-8111-111111111111', imageId: '22222222-2222-4222-8222-222222222222' };
+    const back = partsFromStoredUrl(variantPublicUrl(parts));
+    if (!back || back.imageId !== parts.imageId || back.kind !== 'colour') throw new Error('new-layout URL did not round-trip');
+    if (partsFromStoredUrl(web) !== null) throw new Error('a legacy URL must not parse as the new layout');
     return 'storage paths OK';
 }
