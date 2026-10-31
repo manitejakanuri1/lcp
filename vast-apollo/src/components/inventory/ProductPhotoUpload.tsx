@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
-import { productsApi } from '../../lib/api';
+import { DIRECT_UPLOADS, productsApi } from '../../lib/api';
+import { SecureMediaUploader } from './SecureMediaUploader';
 
 interface ProductPhotoUploadProps {
     productId: string;
@@ -12,7 +13,58 @@ interface ProductPhotoUploadProps {
  * bucket and its URL is saved on products.image_url, which is what the
  * storefront displays — so uploading here replaces the stock placeholder online.
  */
-export function ProductPhotoUpload({ productId, currentImageUrl, onPhotoChanged }: ProductPhotoUploadProps) {
+/** Direct-to-storage version: shrink in the browser, PUT to a signed URL, then record it. */
+function DirectProductPhotoUpload({ productId, currentImageUrl, onPhotoChanged }: ProductPhotoUploadProps) {
+    const [error, setError] = useState<string | null>(null);
+    const [removing, setRemoving] = useState(false);
+
+    const remove = async () => {
+        setError(null);
+        setRemoving(true);
+        try {
+            await productsApi.deletePhoto(productId);
+            onPhotoChanged(null);
+        } catch (err) {
+            setError(err instanceof Error ? err.message : 'Failed to remove photo');
+        } finally {
+            setRemoving(false);
+        }
+    };
+
+    return (
+        <div className="space-y-3">
+            <div className="flex items-center justify-between">
+                <h4 className="text-sm font-semibold text-[var(--color-text)]">Website Photo</h4>
+                {currentImageUrl && (
+                    <button type="button" onClick={remove} disabled={removing} className="text-xs text-[var(--color-danger-text)] hover:underline disabled:opacity-50">
+                        {removing ? 'Removing…' : 'Remove'}
+                    </button>
+                )}
+            </div>
+            {currentImageUrl && <img src={currentImageUrl} alt="Saree" className="mx-auto max-h-40 rounded-lg object-contain" />}
+            <SecureMediaUploader
+                kind="product"
+                ownerId={productId}
+                label={currentImageUrl ? 'Tap to replace photo' : 'Take or upload a photo'}
+                onUploadSuccess={async (image) => {
+                    try {
+                        const saved = await productsApi.attachPhoto(productId, image.imageId);
+                        onPhotoChanged(saved.image_url);
+                    } catch (err) {
+                        setError(err instanceof Error ? err.message : 'Failed to save the photo');
+                    }
+                }}
+            />
+            {error && <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-500">{error}</div>}
+        </div>
+    );
+}
+
+export function ProductPhotoUpload(props: ProductPhotoUploadProps) {
+    return DIRECT_UPLOADS ? <DirectProductPhotoUpload {...props} /> : <LegacyProductPhotoUpload {...props} />;
+}
+
+function LegacyProductPhotoUpload({ productId, currentImageUrl, onPhotoChanged }: ProductPhotoUploadProps) {
     const [isUploading, setIsUploading] = useState(false);
     const [isRemoving, setIsRemoving] = useState(false);
     const [error, setError] = useState<string | null>(null);
