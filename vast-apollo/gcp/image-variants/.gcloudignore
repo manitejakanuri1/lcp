@@ -1,0 +1,6 @@
+# Deliberately does NOT #!include .gitignore: image-naming.js is git-ignored (deploy.sh copies it
+# in from api/) but must be uploaded, or the function cannot start.
+.gcloudignore
+.git
+.gitignore
+node_modules
