@@ -1,0 +1,59 @@
+## Architecture Overview
+
+This architecture safely intercepts large (up to 100MB) image files from mobile browsers, aggressively reduces their payload size locally using background threads, and uploads them directly to edge storage. This bypasses the application server entirely for binary transit, relying on event-driven serverless functions for final e-commerce variant generation.
+
+## Implementation Steps & Responsibilities
+
+### 1. Client-Side Memory Protection & Pre-Upload Reduction
+
+* **Responsibility:** Prevent the main UI thread from freezing or crashing when processing 100MB files, and drastically reduce the upload payload.
+* **Mechanism:** Hand off the file to a Web Worker. Inside the worker, decode the image using `createImageBitmap()` (which does not block the main thread) and draw it onto an `OffscreenCanvas`. Scale the longest edge down to a maximum of 2500px, then use `convertToBlob()` to encode it into a highly compressed WebP format.
+* **Outcome:** A 100MB raw file becomes a <1MB WebP payload before any network request is initiated.
+
+### 2. API Handshake & Presigned URL Generation
+
+* **Responsibility:** Securely authorize the upload without passing the binary file through the backend server.
+* **Mechanism:** The client sends a lightweight POST request to the backend with the new file's metadata (e.g., MIME type, file size). The backend authenticates the user, validates the metadata, and asks the object storage (e.g., Cloudflare R2, AWS S3) for a temporary, short-lived presigned PUT URL.
+
+### 3. Direct-to-Storage Upload
+
+* **Responsibility:** Transit the compressed binary directly to the storage bucket.
+* **Mechanism:** The client executes an HTTP PUT request directly to the presigned URL. Because mobile networks can drop frequently, this step must include exponential backoff and retry logic.
+
+### 4. Asynchronous Event-Driven Processing
+
+* **Responsibility:** Generate strict e-commerce variants (AVIF/WebP at 400px, 800px, 2000px) asynchronously.
+* **Mechanism:** A successful PUT request triggers a storage event (e.g., S3 Event Notification) which pushes a message to a Pub/Sub queue. A serverless function (e.g., Google Cloud Functions) picks up the event, downloads the compressed original, and processes it using a high-performance C-based image library before saving the variants back to a public read-optimized bucket.
+
+## Component Design: `<SecureMediaUploader/>`
+
+**Props Interface:**
+
+* `maxSizeBytes`: integer (e.g., 104857600)
+* `onUploadSuccess`: `(url: string) => void`
+* `onUploadError`: `(error: Error) => void`
+
+**State Machine:**
+`idle` → `compressing` → `requesting_signature` → `uploading` → `complete`
+
+**Separation of Concerns (Custom Hooks):**
+
+* `useImageCompressor()`: Encapsulates the Web Worker instantiation, message passing (using transferable objects like `ArrayBuffer` to avoid memory copying), and `OffscreenCanvas` logic. Returns the compressed blob and processing status.
+* `usePresignedUpload()`: Encapsulates the API handshake to get the URL, and the actual PUT request with retry configuration. Returns progress percentage and network status.
+
+## Design Patterns & SOLID Principles
+
+To ensure this component is reusable and maintainable, the implementation should adhere strictly to SOLID principles:
+
+* **Single Responsibility Principle (SRP):** The UI component (`<SecureMediaUploader/>`) only handles rendering states and user interaction. The `useImageCompressor` hook handles only binary manipulation. The `usePresignedUpload` hook handles only networking.
+* **Open/Closed Principle (OCP):** Use a Strategy Pattern for compression. The `useImageCompressor` hook can accept a configuration object (e.g., `strategy: 'ecommerce' | 'avatar'`) allowing you to add new compression rules without modifying the core worker logic.
+* **Liskov Substitution Principle (LSP):** Any custom upload adapter (e.g., switching from Cloudflare R2 to Google Cloud Storage) must adhere to the same contract, returning a standardized URL and accepting the same Blob input.
+* **Interface Segregation Principle (ISP):** Expose only the necessary props to the consumer. The parent component doesn't need to know about the presigned URL endpoint or the Web Worker lifecycle—it only needs the success/error callbacks.
+* **Dependency Inversion Principle (DIP):** Inject the API endpoint URL or the API client instance into the hooks via a configuration context, rather than hardcoding endpoints deep inside the network hook.
+
+## Industry-Standard Libraries
+
+* **Client-Side Compression:** `browser-image-compression` (provides out-of-the-box Web Worker and OffscreenCanvas support).
+* **Network Transit:** `axios` paired with `axios-retry` for robust handling of intermittent mobile network drops.
+* **Backend Pre-signing:** `@aws-sdk/client-s3` (fully compatible with Cloudflare R2 and AWS S3).
+* **Serverless Processing:** `sharp` (built on `libvips`). It is the industry standard for Node.js image processing due to its minimal memory footprint and extreme speed.
