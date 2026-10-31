@@ -7,7 +7,11 @@ import multer from 'multer';
 import sharp from 'sharp';
 import { many, one, count, tx, insertClause, setClause } from './db.js';
 import { signIn, createLogin, setPassword, setDisabled, deleteLogin } from './firebase.js';
-import { storePhoto, sweepFolder, deletePhotoPair, storeBill, readBill, originalUrlFor } from './storage.js';
+import {
+    storePhoto, sweepFolder, deletePhotoPair, storeBill, readBill, originalUrlFor,
+    signedUploadUrl, variantsReady, variantPublicUrl, deleteStoredPhoto, deleteOwnerImages,
+} from './storage.js';
+import { UPLOAD_MAX_BYTES, UPLOAD_MIME, isUuid, newImageId } from './image-naming.js';
 import { callOcr, ocrBase } from './ocr.js';
 
 // Load environment variables
@@ -524,6 +528,7 @@ app.delete('/api/products/:id', authenticateToken, requireStaff, async (req, res
         await Promise.all([
             sweepFolder(`products/${req.params.id}`),
             sweepFolder(`colors/${req.params.id}`),
+            deleteOwnerImages(req.params.id),
         ]).catch((err) => console.error('Photo cleanup after deleting a saree failed:', err.message));
 
         res.json({ message: 'Product deleted' });
@@ -1499,6 +1504,85 @@ app.get('/api/inventory/bill-image/:path', authenticateToken, requireStaff, asyn
     }
 });
 
+// ================== DIRECT PHOTO UPLOADS ==================
+// The browser shrinks a photo to a small WebP and PUTs it straight to a private bucket; a
+// storage-triggered function (gcp/image-variants) then writes the 400/800/2000 sizes to the
+// public bucket. This API never touches the bytes: it hands out the signed URL, reports when
+// the sizes exist, and - when a saree or colour is saved with an image_id - checks the photo
+// is really ready and really for that owner before putting its address on the row.
+
+// Only these can be attached today; category and CMS photos have no POS owner row yet.
+const DIRECT_UPLOAD_KINDS = ['product', 'colour'];
+// After this long without the sizes appearing, tell the screen to give up and retry.
+const PROCESSING_GIVE_UP_MS = 3 * 60_000;
+
+app.post('/api/images/upload-url', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const { kind, ownerId, mimeType, size } = req.body || {};
+        if (!DIRECT_UPLOAD_KINDS.includes(kind)) return res.status(400).json({ error: 'Unsupported image kind' });
+        if (!isUuid(ownerId)) return res.status(400).json({ error: 'ownerId must be a UUID' });
+        if (mimeType !== UPLOAD_MIME) return res.status(400).json({ error: `Photos are sent as ${UPLOAD_MIME}` });
+        if (!Number.isInteger(size) || size < 1 || size > UPLOAD_MAX_BYTES) {
+            return res.status(400).json({ error: `Photo must be between 1 byte and ${UPLOAD_MAX_BYTES / (1024 * 1024)} MB after shrinking` });
+        }
+
+        // Same shared counter as sign-in: signing is cheap but not free, and a loop in a
+        // broken client should hit a wall instead of filling the table.
+        const allowed = await one('select store.hit_rate_limit($1, $2, $3) as ok', [`images:user:${req.user.id}`, 600, 120]);
+        if (!allowed?.ok) return res.status(429).json({ error: 'Too many uploads. Wait a few minutes.' });
+
+        // For a colour the owner is the saree: the colour row may not exist yet.
+        const owner = await one('select id from pos.products where id = $1', [ownerId]);
+        if (!owner) return res.status(404).json({ error: 'Product not found' });
+
+        const imageId = newImageId();
+        await one(
+            'insert into pos.images (id, kind, owner_id, created_by) values ($1, $2, $3, $4) returning id',
+            [imageId, kind, ownerId, req.user.id],
+        );
+        const signed = await signedUploadUrl({ kind, ownerId, imageId });
+        res.status(201).json({ imageId, uploadUrl: signed.url, headers: signed.headers, expiresAt: signed.expiresAt });
+    } catch (err) {
+        console.error('Upload URL error:', err);
+        res.status(500).json({ error: 'Could not start the upload' });
+    }
+});
+
+app.get('/api/images/:id', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        if (!isUuid(req.params.id)) return res.status(400).json({ error: 'Bad image id' });
+        const row = await one('select * from pos.images where id = $1', [req.params.id]);
+        if (!row) return res.status(404).json({ error: 'Image not found' });
+
+        const parts = { kind: row.kind, ownerId: row.owner_id, imageId: row.id };
+        if (row.status === 'discarded') return res.json({ status: 'failed' });
+        if (await variantsReady(parts)) return res.json({ status: 'ready', url: variantPublicUrl(parts) });
+
+        const age = Date.now() - new Date(row.created_at).getTime();
+        res.json({ status: age > PROCESSING_GIVE_UP_MS ? 'failed' : 'processing' });
+    } catch (err) {
+        console.error('Image status error:', err);
+        res.status(500).json({ error: 'Could not check the photo' });
+    }
+});
+
+/**
+ * Turn an image_id from the screen into the URL to store, or say why not.
+ * Returns { url } or { error } - never throws for a refusal, so routes keep their own shape.
+ */
+async function claimImage(imageId, kind, ownerId) {
+    if (!isUuid(imageId)) return { error: 'Bad image id' };
+    const row = await one('select * from pos.images where id = $1', [imageId]);
+    if (!row || row.kind !== kind || String(row.owner_id).toLowerCase() !== String(ownerId).toLowerCase()) return { error: 'That photo does not belong here' };
+    if (row.status !== 'pending') return { error: 'That photo was already used' };
+
+    const parts = { kind, ownerId, imageId };
+    if (!(await variantsReady(parts))) return { error: 'The photo is still being prepared, try again in a moment' };
+
+    await one("update pos.images set status = 'attached', attached_at = now() where id = $1 returning id", [imageId]);
+    return { url: variantPublicUrl(parts) };
+}
+
 // ================== PRODUCT PHOTOS ==================
 // Photos uploaded here land in the public `product-photos` bucket and the URL
 // is stored on products.image_url, which the storefront reads directly.
@@ -1535,9 +1619,36 @@ app.post('/api/products/:id/photo', authenticateToken, requireStaff, singlePhoto
     }
 });
 
+// The direct-upload twin of the POST above: the picture is already in storage, so this only
+// records which one the saree now shows.
+app.put('/api/products/:id/photo', authenticateToken, requireStaff, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const product = await one('select id, image_url from pos.products where id = $1', [id]);
+        if (!product) return res.status(404).json({ error: 'Product not found' });
+
+        const claimed = await claimImage(req.body?.image_id, 'product', id);
+        if (claimed.error) return res.status(400).json({ error: claimed.error });
+
+        const saved = await one(
+            'update pos.products set image_url = $2, updated_at = now() where id = $1 returning *',
+            [id, claimed.url],
+        );
+        // Only after the new URL is saved: an orphan costs storage, a dangling URL breaks the saree.
+        if (product.image_url) {
+            await deleteStoredPhoto(product.image_url).catch((err) => console.error('Old photo cleanup failed:', err.message));
+        }
+        res.json({ success: true, image_url: claimed.url, product: saved });
+    } catch (err) {
+        console.error('Attach product photo error:', err);
+        res.status(500).json({ error: 'Failed to save the photo' });
+    }
+});
+
 app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (req, res) => {
     try {
         const { id } = req.params;
+        const before = await one('select image_url from pos.products where id = $1', [id]);
         const saved = await one(
             'update pos.products set image_url = null, updated_at = now() where id = $1 returning *',
             [id],
@@ -1545,6 +1656,7 @@ app.delete('/api/products/:id/photo', authenticateToken, requireStaff, async (re
         if (!saved) return res.status(404).json({ error: 'Product not found' });
 
         // Clear the bucket too, or "Remove" only hides the photo and keeps paying for it.
+        await deleteStoredPhoto(before?.image_url).catch((err) => console.error('Photo file cleanup failed:', err.message));
         await sweepFolder(`products/${id}`).catch((err) => console.error('Photo file cleanup failed:', err.message));
         res.json({ success: true, product: saved });
     } catch (error) {
@@ -1824,7 +1936,14 @@ app.post('/api/website/products/:id/colors', authenticateToken, requireStaff, si
 
         // The photo is optional: colours are often tagged from the vendor's sheet first and
         // photographed later, and the website switch is what refuses a colour with no picture.
-        const imageUrl = req.file ? await storeColourPhoto(req.params.id, req.file.buffer) : null;
+        let imageUrl = null;
+        if (req.body.image_id) {
+            const claimed = await claimImage(req.body.image_id, 'colour', req.params.id);
+            if (claimed.error) return res.status(400).json({ error: claimed.error });
+            imageUrl = claimed.url;
+        } else if (req.file) {
+            imageUrl = await storeColourPhoto(req.params.id, req.file.buffer);
+        }
         const pieces = Math.max(0, parseInt(req.body.pieces) || 0);
 
         const row = await one(
@@ -1904,12 +2023,19 @@ app.patch('/api/website/colors/:id', authenticateToken, requireStaff, async (req
 // The photo for a colour created earlier without one (or a replacement shot).
 app.put('/api/website/colors/:id/photo', authenticateToken, requireStaff, singlePhoto, async (req, res) => {
     try {
-        if (!req.file) return res.status(400).json({ error: 'Choose a photo' });
+        if (!req.file && !req.body?.image_id) return res.status(400).json({ error: 'Choose a photo' });
 
         const colour = await one('select id, product_id, image_url from pos.product_colors where id = $1', [req.params.id]);
         if (!colour) return res.status(404).json({ error: 'Colour not found' });
 
-        const imageUrl = await storeColourPhoto(colour.product_id, req.file.buffer);
+        let imageUrl;
+        if (req.body?.image_id) {
+            const claimed = await claimImage(req.body.image_id, 'colour', colour.product_id);
+            if (claimed.error) return res.status(400).json({ error: claimed.error });
+            imageUrl = claimed.url;
+        } else {
+            imageUrl = await storeColourPhoto(colour.product_id, req.file.buffer);
+        }
         const row = await one(
             'update pos.product_colors set image_url = $2, updated_at = now() where id = $1 returning *',
             [req.params.id, imageUrl],
@@ -1918,7 +2044,7 @@ app.put('/api/website/colors/:id/photo', authenticateToken, requireStaff, single
         // The old shot is dead weight once the new one is saved. Only that one pair is deleted:
         // every colour of this saree shares the folder.
         if (colour.image_url) {
-            await deletePhotoPair(colour.image_url).catch((err) => console.error('Old colour photo cleanup failed:', err.message));
+            await deleteStoredPhoto(colour.image_url).catch((err) => console.error('Old colour photo cleanup failed:', err.message));
         }
         res.json(row);
     } catch (err) {
@@ -1947,7 +2073,7 @@ app.delete('/api/website/colors/:id', authenticateToken, requireStaff, async (re
 
         if (!removed) return res.status(404).json({ error: 'Colour not found' });
         if (removed.image_url) {
-            await deletePhotoPair(removed.image_url).catch((err) => console.error('Colour photo cleanup failed:', err.message));
+            await deleteStoredPhoto(removed.image_url).catch((err) => console.error('Colour photo cleanup failed:', err.message));
         }
         res.json({ message: 'Colour removed' });
     } catch (err) {

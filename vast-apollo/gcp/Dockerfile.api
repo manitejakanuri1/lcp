@@ -11,7 +11,7 @@ WORKDIR /app
 COPY api/package.json ./package.json
 RUN npm install --omit=dev --no-audit --no-fund
 
-COPY api/index.js api/db.js api/firebase.js api/storage.js api/ocr.js ./
+COPY api/index.js api/db.js api/firebase.js api/storage.js api/ocr.js api/image-naming.js ./
 
 # The built screens ride along in the same image and are served by the same service, so the
 # shop has one address and the login cookie is same-site by construction.
