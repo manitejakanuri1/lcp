@@ -8,7 +8,8 @@ export function ProductRail({ products }: { products: ProductSummary[] }) {
     <div className="product-rail">
       {products.map((product) => (
         <div key={product.id} className="product-rail-item">
-          <ProductCard product={product} />
+          {/* .product-rail is a fixed 220px column at every width. */}
+          <ProductCard product={product} sizes="220px" />
         </div>
       ))}
     </div>
