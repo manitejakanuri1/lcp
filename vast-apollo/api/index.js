@@ -1821,10 +1821,21 @@ const publishToWebsite = async (client, productId) => {
         );
     }
 
+    // Only one row per listing may be the primary category (uq_product_one_primary_category).
+    // This used to insert the saree's own shelf as primary and, on a conflict, set is_primary
+    // on the existing row - without clearing whoever was primary already. On a first publish
+    // there is no other primary and it worked; on a re-publish it made a second one and the
+    // whole transaction failed, so no edit to a saree already on the website could be saved.
+    //
+    // The shelf list a staff member ticks (PUT /api/website/products/:id/shelves) decides the
+    // primary one deliberately, so this must not overrule it: the category is added, and it
+    // becomes primary only when the listing has none.
     await client.query(
         `insert into store.product_categories (product_id, category_id, is_primary)
-         values ($1, $2, true)
-         on conflict (product_id, category_id) do update set is_primary = true`,
+         values ($1, $2, not exists (
+             select 1 from store.product_categories where product_id = $1 and is_primary
+         ))
+         on conflict (product_id, category_id) do nothing`,
         [listing.id, category.id],
     );
 
