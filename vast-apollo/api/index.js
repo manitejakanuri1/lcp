@@ -145,6 +145,13 @@ app.use(helmet({
             // img-src. Without this the page was allowed to ask for a photo and the worker was
             // then refused the very request it had intercepted, so every photo stayed blank.
             'connect-src': ["'self'", 'https://storage.googleapis.com'],
+            // browser-image-compression shrinks a camera photo inside a Web Worker it creates
+            // from a blob: URL. helmet's default has no worker-src, so script-src 'self' was
+            // used as the fallback and the worker was refused; the library then fell back to
+            // the main thread, which freezes the screen for the whole shrink and runs a phone
+            // out of memory on a large photo. Only the page's own code is allowed: 'self' and
+            // the blob: the page itself made. script-src is untouched.
+            'worker-src': ["'self'", 'blob:'],
         },
     },
 }));

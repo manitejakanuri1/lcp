@@ -88,6 +88,12 @@ check('GET / (the screens)', 'the page may show a photo from the bucket',
 // Allowing img-src alone leaves every photo blank on a phone that has the app installed.
 check('GET /sw.js (the cache)', 'the service worker may fetch a photo from the bucket',
     directive('connect-src').includes('storage.googleapis.com'), directive('connect-src') || 'no connect-src');
+// A photo is shrunk in a Web Worker the page makes from a blob: URL. Without worker-src the
+// browser falls back to script-src, refuses the worker, and the shrink runs on the main thread
+// instead: the screen freezes for its whole length and a phone runs out of memory on a large
+// photo. It still "works", so only this check notices if the directive is dropped again.
+check('GET / (the screens)', 'a photo may be shrunk in a worker',
+    directive('worker-src').includes('blob:'), directive('worker-src') || 'no worker-src');
 
 // ---- Stock In: a purchase bill with its sarees -----------------------------------------
 const purchase = await call('POST', '/api/vendor-bills', {
