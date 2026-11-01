@@ -7,7 +7,7 @@ Design and reasoning: [docs/image_processing_req](../../docs/image_processing_re
 |---|---|
 | Upload bucket (private) | `lakshmi-sarees-uploads` — objects `<kind>/<owner>/<image>.webp` |
 | Public bucket | `lakshmi-sarees-photos` — objects `img/<kind>/<owner>/<image>/{400,800,2000}.webp` |
-| Function | `make-image-variants`, gen2, Node 20, asia-south1 |
+| Function | `make-image-variants`, gen2, Node 22, asia-south1 |
 
 ## One-time setup (not yet run)
 

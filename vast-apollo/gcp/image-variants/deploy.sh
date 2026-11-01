@@ -17,7 +17,7 @@ REGION="${REGION:-asia-south1}"
 cp ../../api/image-naming.js ./image-naming.js
 
 gcloud functions deploy make-image-variants \
-  --gen2 --runtime=nodejs20 --region="$REGION" \
+  --gen2 --runtime=nodejs22 --region="$REGION" \
   --source=. --entry-point=makeImageVariants \
   --trigger-bucket="$UPLOAD_BUCKET" \
   --memory=1GiB --timeout=120s --max-instances=5 \
